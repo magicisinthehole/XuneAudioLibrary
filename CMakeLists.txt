@@ -128,6 +128,94 @@ else()
     message(WARNING "Xune.Audio.Native not found - library will not be auto-copied")
 endif()
 
+# ============================================================================
+# XuneAudio Library (Now Playing integration)
+# ============================================================================
+
+message(STATUS "")
+message(STATUS "Configuring XuneAudio library...")
+
+# Platform-specific Now Playing sources
+if(APPLE)
+    set(NOWPLAYING_SOURCES src/nowplaying/nowplaying_macos.mm)
+    find_library(MEDIAPLAYER_FRAMEWORK MediaPlayer REQUIRED)
+    find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
+    set(NOWPLAYING_LIBS ${MEDIAPLAYER_FRAMEWORK} ${FOUNDATION_FRAMEWORK} ${APPKIT_FRAMEWORK})
+    message(STATUS "  Platform: macOS (MediaPlayer.framework)")
+elseif(WIN32)
+    # Windows: stub for now, full SMTC implementation later
+    set(NOWPLAYING_SOURCES src/nowplaying/nowplaying_stub.cpp)
+    set(NOWPLAYING_LIBS)
+    message(STATUS "  Platform: Windows (stub)")
+elseif(UNIX)
+    # Linux: stub for now, D-Bus/MPRIS implementation later
+    set(NOWPLAYING_SOURCES src/nowplaying/nowplaying_stub.cpp)
+    set(NOWPLAYING_LIBS)
+    message(STATUS "  Platform: Linux (stub)")
+else()
+    set(NOWPLAYING_SOURCES src/nowplaying/nowplaying_stub.cpp)
+    set(NOWPLAYING_LIBS)
+    message(STATUS "  Platform: Unknown (stub)")
+endif()
+
+# Create xune_audio shared library
+add_library(xune_audio SHARED ${NOWPLAYING_SOURCES})
+
+# Set library properties
+set_target_properties(xune_audio PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 1
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
+# Enable exports macro
+target_compile_definitions(xune_audio PRIVATE XUNE_AUDIO_EXPORTS)
+
+# Include directories
+target_include_directories(xune_audio
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+# Link platform libraries
+if(NOWPLAYING_LIBS)
+    target_link_libraries(xune_audio PRIVATE ${NOWPLAYING_LIBS})
+endif()
+
+# macOS-specific settings
+if(APPLE)
+    # Enable Objective-C++ for .mm files
+    set_source_files_properties(${NOWPLAYING_SOURCES} PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
+    # Set minimum deployment target
+    set_target_properties(xune_audio PROPERTIES
+        OSX_DEPLOYMENT_TARGET "10.15"
+    )
+endif()
+
+# Post-build: copy to .NET runtime directory
+if(EXISTS "${AUDIO_NATIVE_DIR}")
+    add_custom_command(TARGET xune_audio POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${RUNTIME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:xune_audio>" "${RUNTIME_DIR}/"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink "$<TARGET_FILE_NAME:xune_audio>" "${RUNTIME_DIR}/libxune_audio.dylib"
+        COMMENT "Copying xune_audio library to ${RUNTIME_DIR}/"
+    )
+    message(STATUS "  Auto-copy: enabled -> ${RUNTIME_DIR}/")
+endif()
+
+message(STATUS "  Sources: ${NOWPLAYING_SOURCES}")
+message(STATUS "  Libraries: ${NOWPLAYING_LIBS}")
+
+# ============================================================================
+# Configuration Summary
+# ============================================================================
+
 # Print summary
 message(STATUS "")
 message(STATUS "Configuration Summary:")
@@ -136,6 +224,7 @@ message(STATUS "  Project:              ${PROJECT_NAME} v${PROJECT_VERSION}")
 message(STATUS "  Build type:           ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:         ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Chromaprint library:  ${CHROMAPRINT_LIBRARY}")
+message(STATUS "  XuneAudio library:    $<TARGET_FILE:xune_audio>")
 message(STATUS "  Runtime ID:           ${RUNTIME_ID}")
 message(STATUS "  Platform libraries:   ${PLATFORM_LIBRARIES}")
 message(STATUS "========================================")
