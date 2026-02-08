@@ -38,6 +38,15 @@ if(NOT EXISTS "${CHROMAPRINT_LIBRARY}")
 
     # Configure Chromaprint
     message(STATUS "Configuring Chromaprint...")
+    # Select FFT backend and platform-specific flags
+    if(APPLE)
+        set(CHROMAPRINT_FFT_LIB "vdsp")       # macOS Accelerate framework (fastest, zero deps)
+        set(CHROMAPRINT_PLATFORM_FLAGS -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15)
+    elseif(UNIX)
+        set(CHROMAPRINT_FFT_LIB "fftw3")      # FFTW3 on Linux (install with: sudo apt install libfftw3-dev)
+        set(CHROMAPRINT_PLATFORM_FLAGS)
+    endif()
+
     execute_process(
         COMMAND ${CMAKE_COMMAND}
             -S ${CHROMAPRINT_ROOT}
@@ -46,8 +55,8 @@ if(NOT EXISTS "${CHROMAPRINT_LIBRARY}")
             -DBUILD_SHARED_LIBS=ON
             -DBUILD_TOOLS=OFF
             -DBUILD_TESTS=OFF
-            -DFFT_LIB=vdsp              # Use macOS Accelerate framework (fastest, zero deps)
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
+            -DFFT_LIB=${CHROMAPRINT_FFT_LIB}
+            ${CHROMAPRINT_PLATFORM_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/install
         RESULT_VARIABLE CHROMAPRINT_CMAKE_RESULT
         OUTPUT_VARIABLE CHROMAPRINT_CMAKE_OUTPUT
@@ -203,7 +212,7 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
     add_custom_command(TARGET xune_audio POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${RUNTIME_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:xune_audio>" "${RUNTIME_DIR}/"
-        COMMAND ${CMAKE_COMMAND} -E create_symlink "$<TARGET_FILE_NAME:xune_audio>" "${RUNTIME_DIR}/libxune_audio.dylib"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink "$<TARGET_FILE_NAME:xune_audio>" "${RUNTIME_DIR}/libxune_audio$<IF:$<PLATFORM_ID:Darwin>,.dylib,.so>"
         COMMENT "Copying xune_audio library to ${RUNTIME_DIR}/"
     )
     message(STATUS "  Auto-copy: enabled -> ${RUNTIME_DIR}/")
