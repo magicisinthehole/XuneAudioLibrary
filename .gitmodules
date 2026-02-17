@@ -1,3 +1,8 @@
 [submodule "vendor/chromaprint"]
 	path = vendor/chromaprint
 	url = https://github.com/acoustid/chromaprint.git
+[submodule "vendor/FFmpeg"]
+	path = vendor/FFmpeg
+	url = https://github.com/magicisinthehole/FFmpeg-with-WMA-Lossless-Enc.git
+	branch = wma-lossless-encoder-7.1
+	shallow = true
