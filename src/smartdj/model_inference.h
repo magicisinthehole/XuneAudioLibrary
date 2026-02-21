@@ -1,11 +1,13 @@
 /**
- * @file onnx_inference.h
- * @brief ONNX Runtime wrapper for Myna model inference.
+ * @file model_inference.h
+ * @brief Model inference wrapper for Myna embedding model.
  *
- * Loads the myna_hybrid.onnx model and runs batched inference on
+ * Loads the Myna hybrid model and runs batched inference on
  * mel spectrogram chunks: (N, 1, 128, 96) -> (N, 768).
  *
- * Thread-safe: the ORT session handles concurrent inference.
+ * Backend is selected at compile time:
+ *   - macOS: MLX (Metal GPU via Apple Silicon unified memory)
+ *   - Windows/Linux: ONNX Runtime (CPU)
  */
 
 #pragma once
@@ -18,26 +20,28 @@
 namespace xune {
 namespace smartdj {
 
-class OnnxInference {
+class ModelInference {
 public:
     static constexpr int kEmbeddingDim = 768;
 
-    OnnxInference();
-    ~OnnxInference();
+    ModelInference();
+    ~ModelInference();
 
     // Non-copyable, movable
-    OnnxInference(const OnnxInference&) = delete;
-    OnnxInference& operator=(const OnnxInference&) = delete;
-    OnnxInference(OnnxInference&&) noexcept;
-    OnnxInference& operator=(OnnxInference&&) noexcept;
+    ModelInference(const ModelInference&) = delete;
+    ModelInference& operator=(const ModelInference&) = delete;
+    ModelInference(ModelInference&&) noexcept;
+    ModelInference& operator=(ModelInference&&) noexcept;
 
     /**
-     * Load the ONNX model from disk.
+     * Load the model from disk.
      *
-     * @param model_path Path to myna_hybrid.onnx
+     * @param model_path Path to model file (.safetensors for MLX, .onnx for ORT)
+     * @param cache_dir Optional cache directory (used by ORT CoreML EP)
      * @return true on success
      */
-    bool LoadModel(const std::string& model_path);
+    bool LoadModel(const std::string& model_path,
+                   const std::string& cache_dir = "");
 
     /**
      * Check if the model is loaded and ready for inference.

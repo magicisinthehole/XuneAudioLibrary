@@ -13,7 +13,7 @@
 
 #include "xune_audio/xune_embedding.h"
 #include "mel_spectrogram.h"
-#include "onnx_inference.h"
+#include "model_inference.h"
 
 #include <cmath>
 #include <cstdio>
@@ -27,7 +27,7 @@
 
 struct xune_embedding_session {
     xune::smartdj::MelSpectrogram mel;
-    xune::smartdj::OnnxInference onnx;
+    xune::smartdj::ModelInference model;
     bool available = false;
 };
 
@@ -56,6 +56,7 @@ static constexpr int kNFramesPerChunk = 96;
 extern "C" {
 
 xune_embedding_error_t xune_embedding_create(const char* model_path,
+                                              const char* cache_dir,
                                               xune_embedding_session_t** out_session) {
     if (!model_path || !out_session) {
         return XUNE_EMBEDDING_ERROR_INVALID_ARGS;
@@ -64,9 +65,9 @@ xune_embedding_error_t xune_embedding_create(const char* model_path,
     auto session = std::make_unique<xune_embedding_session>();
 
     // MelSpectrogram initializes filterbank in constructor (always succeeds)
-    // Load ONNX model
-    if (!session->onnx.LoadModel(model_path)) {
-        fprintf(stderr, "[xune_embedding] Failed to load ONNX model: %s\n", model_path);
+    std::string cache_str = cache_dir ? cache_dir : "";
+    if (!session->model.LoadModel(model_path, cache_str)) {
+        fprintf(stderr, "[xune_embedding] Failed to load model: %s\n", model_path);
         *out_session = nullptr;
         return XUNE_EMBEDDING_ERROR_MODEL_LOAD;
     }
@@ -100,11 +101,16 @@ xune_embedding_error_t xune_embedding_compute_mel(xune_embedding_session_t* sess
         return XUNE_EMBEDDING_ERROR_NOT_AVAILABLE;
     }
 
+    // Thread-local scratch buffers survive across tracks on the same thread,
+    // eliminating ~15MB alloc/free churn per track that causes native heap
+    // fragmentation on macOS (magazine allocator retains freed pages).
+    thread_local xune::smartdj::MelSpectrogram::ScratchBuffer scratch;
+
     // Step 1: Compute mel spectrogram
     std::vector<float> mel_data;
     int n_frames = 0;
 
-    if (!session->mel.Compute(pcm_mono_16k, num_samples, mel_data, n_frames)) {
+    if (!session->mel.Compute(pcm_mono_16k, num_samples, mel_data, n_frames, scratch)) {
         return XUNE_EMBEDDING_ERROR_MEL;
     }
 
@@ -174,15 +180,15 @@ xune_embedding_error_t xune_embedding_infer(xune_embedding_session_t* session,
     const int n_mels = xune::smartdj::MelSpectrogram::kNMels;
 
     std::vector<float> embeddings;
-    if (!session->onnx.RunInference(mel_data, total_chunks,
-                                     n_mels, kNFramesPerChunk, embeddings)) {
+    if (!session->model.RunInference(mel_data, total_chunks,
+                                      n_mels, kNFramesPerChunk, embeddings)) {
         return XUNE_EMBEDDING_ERROR_INFERENCE;
     }
 
     auto result = std::make_unique<xune_embedding_result>();
     result->data = std::move(embeddings);
     result->chunk_count = total_chunks;
-    result->dimensions = xune::smartdj::OnnxInference::kEmbeddingDim;
+    result->dimensions = xune::smartdj::ModelInference::kEmbeddingDim;
 
     *out_result = result.release();
     return XUNE_EMBEDDING_OK;

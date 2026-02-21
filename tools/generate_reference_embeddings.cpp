@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
 
     // Create session
     xune_embedding_session_t* session = nullptr;
-    int err = xune_embedding_create(model_path, &session);
+    int err = xune_embedding_create(model_path, nullptr, &session);
     if (err != XUNE_EMBEDDING_OK) {
         fprintf(stderr, "Error: failed to create session (error %d)\n", err);
         return 1;

@@ -32,6 +32,16 @@ public:
     static constexpr float kFmin = 0.0f;
     static constexpr float kFmax = 8000.0f;
 
+    /// Reusable scratch memory for Compute(). Avoids repeated large heap
+    /// allocations (the padded buffer can be ~15MB for a 3-minute track).
+    /// Vectors only grow, never shrink — after processing the longest track,
+    /// memory is stable for the rest of the run.
+    struct ScratchBuffer {
+        std::vector<float> padded;
+        std::vector<float> windowed_frame;
+        std::vector<float> power_spectrum;
+    };
+
     MelSpectrogram();
     ~MelSpectrogram();
 
@@ -52,6 +62,14 @@ public:
      */
     bool Compute(const float* pcm, int num_samples,
                  std::vector<float>& out_mel, int& out_n_frames) const;
+
+    /**
+     * Compute mel spectrogram with caller-supplied scratch buffer.
+     * Avoids heap alloc/free churn that causes native memory fragmentation.
+     */
+    bool Compute(const float* pcm, int num_samples,
+                 std::vector<float>& out_mel, int& out_n_frames,
+                 ScratchBuffer& scratch) const;
 
 private:
     struct Impl;

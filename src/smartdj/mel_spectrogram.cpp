@@ -238,6 +238,13 @@ void MelSpectrogram::InitMelFilterbank() {
 
 bool MelSpectrogram::Compute(const float* pcm, int num_samples,
                               std::vector<float>& out_mel, int& out_n_frames) const {
+    ScratchBuffer scratch;
+    return Compute(pcm, num_samples, out_mel, out_n_frames, scratch);
+}
+
+bool MelSpectrogram::Compute(const float* pcm, int num_samples,
+                              std::vector<float>& out_mel, int& out_n_frames,
+                              ScratchBuffer& scratch) const {
     if (!pcm || num_samples <= 0) {
         return false;
     }
@@ -245,23 +252,26 @@ bool MelSpectrogram::Compute(const float* pcm, int num_samples,
     // Center-pad with reflect padding (pad_length = n_fft / 2 = 1024)
     const int pad = kNFft / 2;
     const int padded_length = num_samples + 2 * pad;
-    std::vector<float> padded(padded_length);
+
+    // Resize scratch buffers (vectors only grow, never shrink — after processing
+    // the longest track, no further allocations occur for the rest of the run)
+    scratch.padded.resize(padded_length);
 
     // Left reflect pad
     for (int i = 0; i < pad; i++) {
         int src_idx = pad - i;
         if (src_idx >= num_samples) src_idx = num_samples - 1;
-        padded[i] = pcm[src_idx];
+        scratch.padded[i] = pcm[src_idx];
     }
 
     // Copy original signal
-    std::memcpy(padded.data() + pad, pcm, num_samples * sizeof(float));
+    std::memcpy(scratch.padded.data() + pad, pcm, num_samples * sizeof(float));
 
     // Right reflect pad
     for (int i = 0; i < pad; i++) {
         int src_idx = num_samples - 2 - i;
         if (src_idx < 0) src_idx = 0;
-        padded[pad + num_samples + i] = pcm[src_idx];
+        scratch.padded[pad + num_samples + i] = pcm[src_idx];
     }
 
     // Compute number of frames
@@ -273,9 +283,9 @@ bool MelSpectrogram::Compute(const float* pcm, int num_samples,
     // Allocate output: [kNMels x out_n_frames], row-major (mel-first)
     out_mel.resize(kNMels * out_n_frames, 0.0f);
 
-    // Temporary buffers
-    std::vector<float> windowed_frame(kNFft);
-    std::vector<float> power_spectrum(kFreqBins);
+    // Resize temporary buffers from scratch
+    scratch.windowed_frame.resize(kNFft);
+    scratch.power_spectrum.resize(kFreqBins);
 
     // Process each frame
     for (int frame = 0; frame < out_n_frames; frame++) {
@@ -283,11 +293,11 @@ bool MelSpectrogram::Compute(const float* pcm, int num_samples,
 
         // Apply Hann window
         for (int i = 0; i < kNFft; i++) {
-            windowed_frame[i] = padded[start + i] * hann_window_[i];
+            scratch.windowed_frame[i] = scratch.padded[start + i] * hann_window_[i];
         }
 
         // Compute power spectrum |FFT|^2
-        impl_->ComputePowerSpectrum(windowed_frame.data(), power_spectrum.data());
+        impl_->ComputePowerSpectrum(scratch.windowed_frame.data(), scratch.power_spectrum.data());
 
         // Apply mel filterbank: mel[m] = sum(filterbank[m,k] * power[k])
         for (int m = 0; m < kNMels; m++) {
@@ -296,10 +306,10 @@ bool MelSpectrogram::Compute(const float* pcm, int num_samples,
 
 #if defined(__APPLE__)
             // Use vDSP for dot product
-            vDSP_dotpr(filter_row, 1, power_spectrum.data(), 1, &sum, kFreqBins);
+            vDSP_dotpr(filter_row, 1, scratch.power_spectrum.data(), 1, &sum, kFreqBins);
 #else
             for (int k = 0; k < kFreqBins; k++) {
-                sum += filter_row[k] * power_spectrum[k];
+                sum += filter_row[k] * scratch.power_spectrum[k];
             }
 #endif
 

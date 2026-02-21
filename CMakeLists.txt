@@ -140,62 +140,79 @@ else()
 endif()
 
 # ============================================================================
-# ONNX Runtime (prebuilt, for SmartDJ embedding inference)
+# SmartDJ Inference Backend (MLX on macOS, ONNX Runtime on Windows/Linux)
 # ============================================================================
 
-set(ORT_VERSION "1.22.0")
+if(APPLE)
+    # MLX backend (Metal GPU on Apple Silicon)
+    message(STATUS "")
+    message(STATUS "Configuring MLX backend (Metal GPU)...")
 
-# Determine ONNX Runtime platform package
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
-        set(ORT_PLATFORM "osx-arm64")
-    else()
-        set(ORT_PLATFORM "osx-x64")
-    endif()
-    set(ORT_LIB_NAME "libonnxruntime.dylib")
-    set(ORT_LIB_PATTERN "libonnxruntime.*.dylib")
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-        set(ORT_PLATFORM "linux-aarch64")
-    else()
-        set(ORT_PLATFORM "linux-x64")
-    endif()
-    set(ORT_LIB_NAME "libonnxruntime.so")
-    set(ORT_LIB_PATTERN "libonnxruntime.so*")
-elseif(WIN32)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64")
-        set(ORT_PLATFORM "win-arm64")
-    else()
-        set(ORT_PLATFORM "win-x64")
-    endif()
-    set(ORT_LIB_NAME "onnxruntime.dll")
-    set(ORT_LIB_PATTERN "onnxruntime*.dll")
-else()
-    message(FATAL_ERROR "Unsupported platform for ONNX Runtime: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
-endif()
-
-message(STATUS "")
-message(STATUS "Fetching ONNX Runtime ${ORT_VERSION} (${ORT_PLATFORM})...")
-
-FetchContent_Declare(
-    onnxruntime
-    URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-${ORT_PLATFORM}-${ORT_VERSION}.tgz"
-)
-FetchContent_MakeAvailable(onnxruntime)
-
-# Create imported target
-add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
-set_target_properties(onnxruntime::onnxruntime PROPERTIES
-    IMPORTED_LOCATION "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}"
-    INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/include"
-)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set_target_properties(onnxruntime::onnxruntime PROPERTIES
-        IMPORTED_SONAME "${ORT_LIB_NAME}"
+    find_package(Python 3.9 REQUIRED COMPONENTS Interpreter)
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -m mlx --cmake-dir
+        OUTPUT_VARIABLE MLX_ROOT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE MLX_CMAKE_RESULT
     )
-endif()
+    if(NOT MLX_CMAKE_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to find MLX cmake dir. Install with: pip3 install mlx")
+    endif()
 
-message(STATUS "✓ ONNX Runtime: ${onnxruntime_SOURCE_DIR}")
+    find_package(MLX CONFIG REQUIRED HINTS "${MLX_ROOT}")
+    message(STATUS "✓ MLX: ${MLX_ROOT}")
+
+    set(SMARTDJ_INFERENCE_SOURCE src/smartdj/model_inference_mlx.cpp)
+    set(SMARTDJ_INFERENCE_LIBS mlx)
+else()
+    # ONNX Runtime backend (CPU on Windows/Linux)
+    set(ORT_VERSION "1.22.0")
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+            set(ORT_PLATFORM "linux-aarch64")
+        else()
+            set(ORT_PLATFORM "linux-x64")
+        endif()
+        set(ORT_LIB_NAME "libonnxruntime.so")
+        set(ORT_LIB_PATTERN "libonnxruntime.so*")
+    elseif(WIN32)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64")
+            set(ORT_PLATFORM "win-arm64")
+        else()
+            set(ORT_PLATFORM "win-x64")
+        endif()
+        set(ORT_LIB_NAME "onnxruntime.dll")
+        set(ORT_LIB_PATTERN "onnxruntime*.dll")
+    else()
+        message(FATAL_ERROR "Unsupported platform for ONNX Runtime: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+
+    message(STATUS "")
+    message(STATUS "Fetching ONNX Runtime ${ORT_VERSION} (${ORT_PLATFORM})...")
+
+    FetchContent_Declare(
+        onnxruntime
+        URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-${ORT_PLATFORM}-${ORT_VERSION}.tgz"
+    )
+    FetchContent_MakeAvailable(onnxruntime)
+
+    add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
+    set_target_properties(onnxruntime::onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}"
+        INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/include"
+    )
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set_target_properties(onnxruntime::onnxruntime PROPERTIES
+            IMPORTED_SONAME "${ORT_LIB_NAME}"
+        )
+    endif()
+
+    message(STATUS "✓ ONNX Runtime: ${onnxruntime_SOURCE_DIR}")
+
+    set(SMARTDJ_INFERENCE_SOURCE src/smartdj/model_inference_ort.cpp)
+    set(SMARTDJ_INFERENCE_LIBS onnxruntime::onnxruntime)
+endif()
 
 # Platform FFT library for SmartDJ mel spectrogram
 # macOS: Accelerate/vDSP (already found above)
@@ -236,10 +253,11 @@ else()
     message(STATUS "  Platform: Unknown (stub)")
 endif()
 
-# SmartDJ sources (mel spectrogram + ONNX inference + C API)
+# SmartDJ sources (mel spectrogram + model inference + C API)
+# Inference backend: MLX on macOS, ORT on Windows/Linux (set above)
 set(SMARTDJ_SOURCES
     src/smartdj/mel_spectrogram.cpp
-    src/smartdj/onnx_inference.cpp
+    ${SMARTDJ_INFERENCE_SOURCE}
     src/smartdj/embedding_service.cpp
 )
 
@@ -272,8 +290,8 @@ if(NOWPLAYING_LIBS)
     target_link_libraries(xune_audio PRIVATE ${NOWPLAYING_LIBS})
 endif()
 
-# Link ONNX Runtime (SmartDJ)
-target_link_libraries(xune_audio PRIVATE onnxruntime::onnxruntime)
+# Link inference backend (MLX on macOS, ORT on Windows/Linux)
+target_link_libraries(xune_audio PRIVATE ${SMARTDJ_INFERENCE_LIBS})
 
 # Link platform FFT (SmartDJ mel spectrogram)
 if(APPLE)
@@ -305,19 +323,21 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         COMMENT "Copying xune_audio library to ${RUNTIME_DIR}/"
     )
 
-    # Also copy ONNX Runtime shared library to .NET runtime directory
-    add_custom_command(TARGET xune_audio POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}" "${RUNTIME_DIR}/"
-        COMMENT "Copying ONNX Runtime library to ${RUNTIME_DIR}/"
-    )
-    # On Linux, also copy the versioned .so (e.g. libonnxruntime.so.1.22.0)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        file(GLOB ORT_VERSIONED_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.*")
-        foreach(ORT_LIB ${ORT_VERSIONED_LIBS})
-            add_custom_command(TARGET xune_audio POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy "${ORT_LIB}" "${RUNTIME_DIR}/"
-            )
-        endforeach()
+    # Copy ONNX Runtime shared library to .NET runtime directory (non-macOS only)
+    if(NOT APPLE)
+        add_custom_command(TARGET xune_audio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}" "${RUNTIME_DIR}/"
+            COMMENT "Copying ONNX Runtime library to ${RUNTIME_DIR}/"
+        )
+        # On Linux, also copy the versioned .so (e.g. libonnxruntime.so.1.22.0)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            file(GLOB ORT_VERSIONED_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.*")
+            foreach(ORT_LIB ${ORT_VERSIONED_LIBS})
+                add_custom_command(TARGET xune_audio POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy "${ORT_LIB}" "${RUNTIME_DIR}/"
+                )
+            endforeach()
+        endif()
     endif()
 
     message(STATUS "  Auto-copy: enabled -> ${RUNTIME_DIR}/")
@@ -347,13 +367,17 @@ if(BUILD_TESTS)
 
     # Reference data paths (exported by SmartDJ/onnx_export/export_reference_data.py)
     set(REFERENCE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/reference_data")
-    set(ONNX_MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/myna_hybrid.onnx")
+    if(APPLE)
+        set(MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/myna_hybrid.safetensors")
+    else()
+        set(MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/myna_hybrid.onnx")
+    endif()
 
     # Compile SmartDJ sources directly into the test (internal classes have hidden
     # visibility in the shared library, so we can't link against xune_audio for them)
     add_executable(smartdj_test tests/smartdj_test.cpp ${SMARTDJ_SOURCES})
     target_link_libraries(smartdj_test PRIVATE
-        onnxruntime::onnxruntime
+        ${SMARTDJ_INFERENCE_LIBS}
         GTest::gtest_main
     )
     if(APPLE)
@@ -368,7 +392,7 @@ if(BUILD_TESTS)
     target_compile_definitions(smartdj_test PRIVATE
         XUNE_AUDIO_EXPORTS
         REFERENCE_DATA_DIR="${REFERENCE_DATA_DIR}"
-        ONNX_MODEL_PATH="${ONNX_MODEL_PATH}"
+        MODEL_PATH="${MODEL_PATH}"
     )
 
     include(GoogleTest)
@@ -376,7 +400,7 @@ if(BUILD_TESTS)
 
     # Tool: generate reference embeddings using the C++ pipeline (for INT8 testing)
     add_executable(generate_reference_embeddings tools/generate_reference_embeddings.cpp ${SMARTDJ_SOURCES})
-    target_link_libraries(generate_reference_embeddings PRIVATE onnxruntime::onnxruntime)
+    target_link_libraries(generate_reference_embeddings PRIVATE ${SMARTDJ_INFERENCE_LIBS})
     if(APPLE)
         target_link_libraries(generate_reference_embeddings PRIVATE ${ACCELERATE_LIBRARY})
     else()
@@ -403,7 +427,11 @@ message(STATUS "  Project:              ${PROJECT_NAME} v${PROJECT_VERSION}")
 message(STATUS "  Build type:           ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:         ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Chromaprint library:  ${CHROMAPRINT_LIBRARY}")
-message(STATUS "  ONNX Runtime:         ${ORT_VERSION} (${ORT_PLATFORM})")
+if(APPLE)
+message(STATUS "  Inference backend:    MLX (Metal GPU)")
+else()
+message(STATUS "  Inference backend:    ONNX Runtime ${ORT_VERSION} (${ORT_PLATFORM})")
+endif()
 message(STATUS "  XuneAudio library:    $<TARGET_FILE:xune_audio>")
 message(STATUS "  Runtime ID:           ${RUNTIME_ID}")
 message(STATUS "  Platform libraries:   ${PLATFORM_LIBRARIES}")

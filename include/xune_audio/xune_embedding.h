@@ -4,11 +4,11 @@
  *
  * Two-phase pipeline for computing audio embeddings:
  *   1. xune_embedding_compute_mel() — mel spectrogram + chunking (thread-safe: stack-local FFT buffers)
- *   2. xune_embedding_infer() — batched ONNX inference on mel chunks
+ *   2. xune_embedding_infer() — batched model inference on mel chunks
  *
  * Cross-track batching: compute mel for multiple tracks concurrently, then
  * concatenate their mel data and call xune_embedding_infer() once with the
- * combined total_chunks for a single batched ORT call.
+ * combined total_chunks for a single batched inference call.
  *
  * The C# side handles:
  *   - Audio decoding via FFmpeg (to mono 16kHz float32)
@@ -71,15 +71,17 @@ typedef struct xune_embedding_result xune_embedding_result_t;
 /**
  * @brief Create an embedding session.
  *
- * Loads the ONNX model and precomputes the mel filterbank.
+ * Loads the model and precomputes the mel filterbank.
  * Thread-safe: multiple sessions can exist simultaneously.
  *
- * @param model_path Path to the myna_hybrid.onnx file (UTF-8)
+ * @param model_path Path to the model file (UTF-8). .safetensors for MLX, .onnx for ORT.
+ * @param cache_dir Optional cache directory (NULL to skip). Used by ORT backends.
  * @param out_session Receives the created session handle
  * @return XUNE_EMBEDDING_OK on success, error code on failure
  */
 XUNE_AUDIO_API xune_embedding_error_t xune_embedding_create(
     const char* model_path,
+    const char* cache_dir,
     xune_embedding_session_t** out_session);
 
 /**
@@ -161,7 +163,7 @@ XUNE_AUDIO_API void xune_embedding_free_mel(
  * ============================================================================ */
 
 /**
- * @brief Run batched ONNX inference on pre-computed mel chunks.
+ * @brief Run batched inference on pre-computed mel chunks.
  *
  * Mel chunks from multiple tracks can be concatenated for cross-track batching.
  * The caller is responsible for tracking per-track chunk counts to split the

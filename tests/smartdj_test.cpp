@@ -2,12 +2,12 @@
  * @file smartdj_test.cpp
  * @brief Tests for the SmartDJ embedding pipeline.
  *
- * Validates the C++ mel spectrogram and ONNX inference against Python reference
+ * Validates the C++ mel spectrogram and model inference against Python reference
  * data exported by SmartDJ/onnx_export/export_reference_data.py.
  *
  * Test data paths are set via CMake compile definitions:
  *   REFERENCE_DATA_DIR  — directory containing test_pcm_mono_16k.bin, reference_mel.bin, etc.
- *   ONNX_MODEL_PATH     — path to myna_hybrid.onnx
+ *   MODEL_PATH          — path to model file (.onnx or .safetensors)
  */
 
 #include <gtest/gtest.h>
@@ -20,15 +20,15 @@
 #include <vector>
 
 #include "smartdj/mel_spectrogram.h"
-#include "smartdj/onnx_inference.h"
+#include "smartdj/model_inference.h"
 #include "xune_audio/xune_embedding.h"
 
 // Paths injected by CMake
 #ifndef REFERENCE_DATA_DIR
 #error "REFERENCE_DATA_DIR must be defined by CMake"
 #endif
-#ifndef ONNX_MODEL_PATH
-#error "ONNX_MODEL_PATH must be defined by CMake"
+#ifndef MODEL_PATH
+#error "MODEL_PATH must be defined by CMake"
 #endif
 
 namespace {
@@ -60,7 +60,7 @@ float CosineSimilarity(const float* a, const float* b, size_t n) {
 }
 
 const std::string kRefDir = REFERENCE_DATA_DIR;
-const std::string kModelPath = ONNX_MODEL_PATH;
+const std::string kModelPath = MODEL_PATH;
 
 }  // namespace
 
@@ -196,7 +196,7 @@ TEST_F(MelSpectrogramTest, PerFrameCosineSimilarity) {
 // ONNX Inference Tests
 // ============================================================================
 
-class OnnxInferenceTest : public ::testing::Test {
+class ModelInferenceTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Compute mel from PCM using the C++ implementation, matching the
@@ -218,15 +218,15 @@ protected:
     std::vector<float> ref_embeddings_;
 };
 
-TEST_F(OnnxInferenceTest, ModelLoads) {
-    xune::smartdj::OnnxInference onnx;
+TEST_F(ModelInferenceTest, ModelLoads) {
+    xune::smartdj::ModelInference onnx;
     bool ok = onnx.LoadModel(kModelPath);
     ASSERT_TRUE(ok) << "Failed to load ONNX model from: " << kModelPath;
     EXPECT_TRUE(onnx.IsReady());
 }
 
-TEST_F(OnnxInferenceTest, InferenceMatchesReference) {
-    xune::smartdj::OnnxInference onnx;
+TEST_F(ModelInferenceTest, InferenceMatchesReference) {
+    xune::smartdj::ModelInference onnx;
     ASSERT_TRUE(onnx.LoadModel(kModelPath));
 
     // C++ mel is 128 x cpp_mel_n_frames_. Chunk: first 96 frames.
@@ -268,8 +268,8 @@ TEST_F(OnnxInferenceTest, InferenceMatchesReference) {
         << "Max absolute difference " << max_diff << " exceeds 0.5";
 }
 
-TEST_F(OnnxInferenceTest, BatchedInferenceConsistent) {
-    xune::smartdj::OnnxInference onnx;
+TEST_F(ModelInferenceTest, BatchedInferenceConsistent) {
+    xune::smartdj::ModelInference onnx;
     ASSERT_TRUE(onnx.LoadModel(kModelPath));
 
     int n_mels = 128;
@@ -329,7 +329,7 @@ protected:
 
 TEST_F(EmbeddingPipelineTest, SessionLifecycle) {
     xune_embedding_session_t* session = nullptr;
-    int err = xune_embedding_create(kModelPath.c_str(), &session);
+    int err = xune_embedding_create(kModelPath.c_str(), nullptr, &session);
     ASSERT_EQ(err, XUNE_EMBEDDING_OK);
     ASSERT_NE(session, nullptr);
     EXPECT_TRUE(xune_embedding_is_available(session));
@@ -339,7 +339,7 @@ TEST_F(EmbeddingPipelineTest, SessionLifecycle) {
 
 TEST_F(EmbeddingPipelineTest, SessionCreateWithBadPathFails) {
     xune_embedding_session_t* session = nullptr;
-    int err = xune_embedding_create("/nonexistent/model.onnx", &session);
+    int err = xune_embedding_create("/nonexistent/model.onnx", nullptr, &session);
     EXPECT_NE(err, XUNE_EMBEDDING_OK);
 }
 
@@ -357,7 +357,7 @@ TEST_F(EmbeddingPipelineTest, FreeNullMelIsSafe) {
 
 TEST_F(EmbeddingPipelineTest, MelProducesCorrectChunkCount) {
     xune_embedding_session_t* session = nullptr;
-    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), &session), XUNE_EMBEDDING_OK);
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), nullptr, &session), XUNE_EMBEDDING_OK);
 
     xune_embedding_mel_t* mel = nullptr;
     int err = xune_embedding_compute_mel(session, pcm_.data(),
@@ -375,7 +375,7 @@ TEST_F(EmbeddingPipelineTest, MelProducesCorrectChunkCount) {
 
 TEST_F(EmbeddingPipelineTest, InferProducesCorrectDimensions) {
     xune_embedding_session_t* session = nullptr;
-    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), &session), XUNE_EMBEDDING_OK);
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), nullptr, &session), XUNE_EMBEDDING_OK);
 
     xune_embedding_mel_t* mel = nullptr;
     ASSERT_EQ(xune_embedding_compute_mel(session, pcm_.data(),
@@ -399,7 +399,7 @@ TEST_F(EmbeddingPipelineTest, InferProducesCorrectDimensions) {
 
 TEST_F(EmbeddingPipelineTest, EndToEndMatchesReference) {
     xune_embedding_session_t* session = nullptr;
-    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), &session), XUNE_EMBEDDING_OK);
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), nullptr, &session), XUNE_EMBEDDING_OK);
 
     // Phase 1: mel
     xune_embedding_mel_t* mel = nullptr;
@@ -436,7 +436,7 @@ TEST_F(EmbeddingPipelineTest, LongerAudioProducesMultipleChunks) {
     std::vector<float> long_pcm(240000, 0.0f);
 
     xune_embedding_session_t* session = nullptr;
-    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), &session), XUNE_EMBEDDING_OK);
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), nullptr, &session), XUNE_EMBEDDING_OK);
 
     xune_embedding_mel_t* mel = nullptr;
     ASSERT_EQ(xune_embedding_compute_mel(session, long_pcm.data(),
@@ -464,7 +464,7 @@ TEST_F(EmbeddingPipelineTest, TooShortAudioReturnsError) {
     std::vector<float> short_pcm(100, 0.0f);
 
     xune_embedding_session_t* session = nullptr;
-    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), &session), XUNE_EMBEDDING_OK);
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), nullptr, &session), XUNE_EMBEDDING_OK);
 
     xune_embedding_mel_t* mel = nullptr;
     int err = xune_embedding_compute_mel(session, short_pcm.data(),
@@ -477,7 +477,7 @@ TEST_F(EmbeddingPipelineTest, TooShortAudioReturnsError) {
 
 TEST_F(EmbeddingPipelineTest, CrossTrackBatchInference) {
     xune_embedding_session_t* session = nullptr;
-    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), &session), XUNE_EMBEDDING_OK);
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), nullptr, &session), XUNE_EMBEDDING_OK);
 
     // Track A: original test PCM (5 seconds, 1 chunk)
     xune_embedding_mel_t* mel_a = nullptr;

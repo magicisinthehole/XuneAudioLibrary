@@ -1,9 +1,12 @@
 /**
- * @file onnx_inference.cpp
+ * @file model_inference_ort.cpp
  * @brief ONNX Runtime C API wrapper for Myna model inference.
+ *
+ * Backend: ONNX Runtime (CPU). Used on Windows and Linux.
+ * On macOS, model_inference_mlx.cpp provides the MLX Metal GPU backend.
  */
 
-#include "onnx_inference.h"
+#include "model_inference.h"
 
 #include <cstdio>
 #include <cstring>
@@ -16,7 +19,7 @@ namespace smartdj {
 // PIMPL: ONNX Runtime state
 // ============================================================================
 
-struct OnnxInference::Impl {
+struct ModelInference::Impl {
     const OrtApi* api = nullptr;
     OrtEnv* env = nullptr;
     OrtSession* session = nullptr;
@@ -50,15 +53,16 @@ struct OnnxInference::Impl {
 };
 
 // ============================================================================
-// OnnxInference
+// ModelInference
 // ============================================================================
 
-OnnxInference::OnnxInference() : impl_(std::make_unique<Impl>()) {}
-OnnxInference::~OnnxInference() = default;
-OnnxInference::OnnxInference(OnnxInference&&) noexcept = default;
-OnnxInference& OnnxInference::operator=(OnnxInference&&) noexcept = default;
+ModelInference::ModelInference() : impl_(std::make_unique<Impl>()) {}
+ModelInference::~ModelInference() = default;
+ModelInference::ModelInference(ModelInference&&) noexcept = default;
+ModelInference& ModelInference::operator=(ModelInference&&) noexcept = default;
 
-bool OnnxInference::LoadModel(const std::string& model_path) {
+bool ModelInference::LoadModel(const std::string& model_path,
+                               const std::string& cache_dir) {
     auto& api = *impl_->api;
 
     // Create environment
@@ -74,14 +78,19 @@ bool OnnxInference::LoadModel(const std::string& model_path) {
 
     // Limit ORT's internal thread pool. Inference is serialized through the C#
     // batch worker (one Run() at a time), so ORT only needs enough threads for
-    // intra-op parallelism within a single call. Combined with 4 concurrent
-    // FFmpeg decoders + mel computations, unlimited threads cause CPU thrashing.
+    // intra-op parallelism within a single call.
     if (!impl_->CheckStatus(api.SetIntraOpNumThreads(impl_->session_options, 4))) {
         return false;
     }
     if (!impl_->CheckStatus(api.SetSessionGraphOptimizationLevel(impl_->session_options, ORT_ENABLE_ALL))) {
         return false;
     }
+
+    // NOTE: CoreML EP was tested but causes 4-6x SLOWER inference due to graph
+    // fragmentation. The Myna ViT model gets split into 72 partitions (378/542
+    // nodes on CoreML, rest on CPU), with constant data serialization at each
+    // boundary. On macOS, we now use the MLX backend (model_inference_mlx.cpp)
+    // which runs the full graph on Metal GPU via Apple Silicon unified memory.
 
     // Create session (load model)
     // On POSIX, ORTCHAR_T is char. On Windows it's wchar_t.
@@ -107,11 +116,11 @@ bool OnnxInference::LoadModel(const std::string& model_path) {
     return true;
 }
 
-bool OnnxInference::IsReady() const {
+bool ModelInference::IsReady() const {
     return impl_ && impl_->ready;
 }
 
-bool OnnxInference::RunInference(const float* input_data, int batch_size,
+bool ModelInference::RunInference(const float* input_data, int batch_size,
                                   int n_mels, int n_frames,
                                   std::vector<float>& output) {
     if (!impl_->ready || !input_data || batch_size <= 0) {
