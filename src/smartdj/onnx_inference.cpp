@@ -72,9 +72,11 @@ bool OnnxInference::LoadModel(const std::string& model_path) {
         return false;
     }
 
-    // Use all available cores for intra-op parallelism.
-    // ORT's thread pool is shared across concurrent Run() calls on this session.
-    if (!impl_->CheckStatus(api.SetIntraOpNumThreads(impl_->session_options, 0))) {
+    // Limit ORT's internal thread pool. Inference is serialized through the C#
+    // batch worker (one Run() at a time), so ORT only needs enough threads for
+    // intra-op parallelism within a single call. Combined with 4 concurrent
+    // FFmpeg decoders + mel computations, unlimited threads cause CPU thrashing.
+    if (!impl_->CheckStatus(api.SetIntraOpNumThreads(impl_->session_options, 4))) {
         return false;
     }
     if (!impl_->CheckStatus(api.SetSessionGraphOptimizationLevel(impl_->session_options, ORT_ENABLE_ALL))) {
@@ -118,10 +120,14 @@ bool OnnxInference::RunInference(const float* input_data, int batch_size,
 
     auto& api = *impl_->api;
 
-    // Create memory info for CPU
+    // Create memory info for CPU — use OrtDeviceAllocator (malloc/free) instead of
+    // OrtArenaAllocator. The arena allocator grows to peak batch size and never
+    // returns memory to the OS, causing steady RSS growth across 1500+ tracks
+    // with varying batch sizes. The malloc/free overhead is negligible compared
+    // to the ~50ms inference time per batch.
     OrtMemoryInfo* memory_info = nullptr;
     if (!impl_->CheckStatus(
-            api.CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info))) {
+            api.CreateCpuMemoryInfo(OrtDeviceAllocator, OrtMemTypeDefault, &memory_info))) {
         return false;
     }
 
