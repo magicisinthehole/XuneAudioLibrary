@@ -27,6 +27,9 @@
 #include <unordered_map>
 
 #include <mlx/mlx.h>
+#include <mlx/memory.h>
+
+#include "../mlx_gpu_mutex.h"
 
 namespace mx = mlx::core;
 
@@ -222,6 +225,7 @@ ModelInference& ModelInference::operator=(ModelInference&&) noexcept = default;
 
 bool ModelInference::LoadModel(const std::string& model_path,
                                const std::string& cache_dir) {
+    std::lock_guard<std::mutex> lock(xune::mlx_gpu_mutex());
     try {
         // Limit the Metal buffer cache to prevent unbounded growth between
         // inference calls. Freed activation buffers are returned to the system
@@ -277,6 +281,7 @@ bool ModelInference::RunInference(const float* input_data, int batch_size,
         return false;
     }
 
+    std::lock_guard<std::mutex> lock(xune::mlx_gpu_mutex());
     try {
         // Create input tensor: (batch_size, 1, n_mels, n_frames)
         // MLX copies the data, so input_data doesn't need to outlive this call.
@@ -338,6 +343,9 @@ bool ModelInference::RunInference(const float* input_data, int batch_size,
         size_t output_count = static_cast<size_t>(batch_size) * kEmbeddingDim;
         output.resize(output_count);
         std::memcpy(output.data(), result.data<float>(), output_count * sizeof(float));
+
+        // Release Metal buffer cache to prevent memory accumulation across batches
+        mx::clear_cache();
 
         return true;
     } catch (const std::exception& e) {

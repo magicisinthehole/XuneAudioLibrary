@@ -163,10 +163,11 @@ if(APPLE)
     message(STATUS "✓ MLX: ${MLX_ROOT}")
 
     set(SMARTDJ_INFERENCE_SOURCE src/smartdj/model_inference_mlx.cpp)
+    set(BEAT_INFERENCE_SOURCE src/beattracking/beat_inference_mlx.cpp)
     set(SMARTDJ_INFERENCE_LIBS mlx)
 else()
     # ONNX Runtime backend (CPU on Windows/Linux)
-    set(ORT_VERSION "1.22.0")
+    set(ORT_VERSION "1.24.2")
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
@@ -211,6 +212,7 @@ else()
     message(STATUS "✓ ONNX Runtime: ${onnxruntime_SOURCE_DIR}")
 
     set(SMARTDJ_INFERENCE_SOURCE src/smartdj/model_inference_ort.cpp)
+    set(BEAT_INFERENCE_SOURCE src/beattracking/beat_inference_ort.cpp)
     set(SMARTDJ_INFERENCE_LIBS onnxruntime::onnxruntime)
 endif()
 
@@ -261,8 +263,22 @@ set(SMARTDJ_SOURCES
     src/smartdj/embedding_service.cpp
 )
 
+# Beat tracking sources (Beat This! mel spectrogram + inference + C API)
+# Uses same inference backend conditional as SmartDJ
+set(BEATTRACKING_SOURCES
+    src/beattracking/beat_mel_spectrogram.cpp
+    ${BEAT_INFERENCE_SOURCE}
+    src/beattracking/beat_postprocess.cpp
+    src/beattracking/beat_service.cpp
+)
+
 # Create xune_audio shared library
-add_library(xune_audio SHARED ${NOWPLAYING_SOURCES} ${SMARTDJ_SOURCES})
+add_library(xune_audio SHARED
+    src/xune_version.cpp
+    ${NOWPLAYING_SOURCES}
+    ${SMARTDJ_SOURCES}
+    ${BEATTRACKING_SOURCES}
+)
 
 # Set library properties
 set_target_properties(xune_audio PROPERTIES
@@ -345,6 +361,7 @@ endif()
 
 message(STATUS "  Now Playing sources: ${NOWPLAYING_SOURCES}")
 message(STATUS "  SmartDJ sources:    ${SMARTDJ_SOURCES}")
+message(STATUS "  BeatTracking src:   ${BEATTRACKING_SOURCES}")
 message(STATUS "  Now Playing libs:   ${NOWPLAYING_LIBS}")
 
 # ============================================================================
@@ -397,6 +414,35 @@ if(BUILD_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(smartdj_test)
+
+    # Beat tracking test
+    set(BEAT_REFERENCE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_reference_data")
+    if(APPLE)
+        set(BEAT_MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_this_small.safetensors")
+    else()
+        set(BEAT_MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_this_small.onnx")
+    endif()
+
+    add_executable(beat_test tests/beat_test.cpp ${BEATTRACKING_SOURCES})
+    target_link_libraries(beat_test PRIVATE
+        ${SMARTDJ_INFERENCE_LIBS}
+        GTest::gtest_main
+    )
+    if(APPLE)
+        target_link_libraries(beat_test PRIVATE ${ACCELERATE_LIBRARY})
+    else()
+        target_link_libraries(beat_test PRIVATE ${FFTW3_LIBRARY})
+    endif()
+    target_include_directories(beat_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_compile_definitions(beat_test PRIVATE
+        XUNE_AUDIO_EXPORTS
+        BEAT_REFERENCE_DATA_DIR="${BEAT_REFERENCE_DATA_DIR}"
+        BEAT_MODEL_PATH="${BEAT_MODEL_PATH}"
+    )
+    gtest_discover_tests(beat_test)
 
     # Tool: generate reference embeddings using the C++ pipeline (for INT8 testing)
     add_executable(generate_reference_embeddings tools/generate_reference_embeddings.cpp ${SMARTDJ_SOURCES})

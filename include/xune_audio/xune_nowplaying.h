@@ -13,23 +13,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "xune_export.h"
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-/* ============================================================================
- * Platform Export Macro
- * ============================================================================ */
-
-#if defined(_WIN32)
-    #ifdef XUNE_AUDIO_EXPORTS
-        #define XUNE_AUDIO_API __declspec(dllexport)
-    #else
-        #define XUNE_AUDIO_API __declspec(dllimport)
-    #endif
-#else
-    #define XUNE_AUDIO_API __attribute__((visibility("default")))
 #endif
 
 /* ============================================================================

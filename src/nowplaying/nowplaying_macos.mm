@@ -12,12 +12,19 @@
 #import <MediaPlayer/MediaPlayer.h>
 #include "xune_audio/xune_nowplaying.h"
 
-// Global state
+#include <mutex>
+
+// Mutex protecting all mutable global state. Callbacks fire on an OS-managed
+// thread; init/cleanup may be called from any thread. The mutex prevents
+// TOCTOU races where a callback reads g_callback while cleanup nulls it.
+static std::mutex g_mutex;
+
+// Global state (guarded by g_mutex)
 static xune_command_callback_t g_callback = nullptr;
 static void* g_user_data = nullptr;
 static bool g_initialized = false;
 
-// Command handler tokens for cleanup
+// Command handler tokens for cleanup (guarded by g_mutex)
 static id g_playTarget = nil;
 static id g_pauseTarget = nil;
 static id g_toggleTarget = nil;
@@ -28,6 +35,14 @@ static id g_seekTarget = nil;
 static id g_skipForwardTarget = nil;
 static id g_skipBackwardTarget = nil;
 
+// Helper: invoke the callback under the mutex. Called from each command handler block.
+static void dispatch_command(xune_media_command_t cmd, int64_t param) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_callback) {
+        g_callback(cmd, param, g_user_data);
+    }
+}
+
 #pragma mark - Lifecycle
 
 int xune_nowplaying_init(
@@ -36,6 +51,8 @@ int xune_nowplaying_init(
     void* user_data)
 {
     (void)window_handle;  // Not needed on macOS
+
+    std::lock_guard<std::mutex> lock(g_mutex);
 
     if (g_initialized) {
         return 0;  // Already initialized
@@ -51,9 +68,7 @@ int xune_nowplaying_init(
         g_playTarget = [commandCenter.playCommand addTargetWithHandler:
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 (void)event;
-                if (g_callback) {
-                    g_callback(XUNE_CMD_PLAY, 0, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_PLAY, 0);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -61,9 +76,7 @@ int xune_nowplaying_init(
         g_pauseTarget = [commandCenter.pauseCommand addTargetWithHandler:
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 (void)event;
-                if (g_callback) {
-                    g_callback(XUNE_CMD_PAUSE, 0, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_PAUSE, 0);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -71,9 +84,7 @@ int xune_nowplaying_init(
         g_toggleTarget = [commandCenter.togglePlayPauseCommand addTargetWithHandler:
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 (void)event;
-                if (g_callback) {
-                    g_callback(XUNE_CMD_TOGGLE_PLAY_PAUSE, 0, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_TOGGLE_PLAY_PAUSE, 0);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -81,9 +92,7 @@ int xune_nowplaying_init(
         g_stopTarget = [commandCenter.stopCommand addTargetWithHandler:
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 (void)event;
-                if (g_callback) {
-                    g_callback(XUNE_CMD_STOP, 0, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_STOP, 0);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -91,9 +100,7 @@ int xune_nowplaying_init(
         g_nextTarget = [commandCenter.nextTrackCommand addTargetWithHandler:
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 (void)event;
-                if (g_callback) {
-                    g_callback(XUNE_CMD_NEXT, 0, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_NEXT, 0);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -101,9 +108,7 @@ int xune_nowplaying_init(
         g_previousTarget = [commandCenter.previousTrackCommand addTargetWithHandler:
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 (void)event;
-                if (g_callback) {
-                    g_callback(XUNE_CMD_PREVIOUS, 0, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_PREVIOUS, 0);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -113,9 +118,7 @@ int xune_nowplaying_init(
                 MPChangePlaybackPositionCommandEvent* positionEvent =
                     (MPChangePlaybackPositionCommandEvent*)event;
                 int64_t positionMs = (int64_t)(positionEvent.positionTime * 1000.0);
-                if (g_callback) {
-                    g_callback(XUNE_CMD_SEEK, positionMs, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_SEEK, positionMs);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -125,9 +128,7 @@ int xune_nowplaying_init(
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 MPSkipIntervalCommandEvent* skipEvent = (MPSkipIntervalCommandEvent*)event;
                 int64_t intervalMs = (int64_t)(skipEvent.interval * 1000.0);
-                if (g_callback) {
-                    g_callback(XUNE_CMD_SKIP_FORWARD, intervalMs, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_SKIP_FORWARD, intervalMs);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -137,9 +138,7 @@ int xune_nowplaying_init(
             ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent* _Nonnull event) {
                 MPSkipIntervalCommandEvent* skipEvent = (MPSkipIntervalCommandEvent*)event;
                 int64_t intervalMs = (int64_t)(skipEvent.interval * 1000.0);
-                if (g_callback) {
-                    g_callback(XUNE_CMD_SKIP_BACKWARD, intervalMs, g_user_data);
-                }
+                dispatch_command(XUNE_CMD_SKIP_BACKWARD, intervalMs);
                 return MPRemoteCommandHandlerStatusSuccess;
             }];
 
@@ -170,9 +169,16 @@ bool xune_nowplaying_is_available(void)
 
 void xune_nowplaying_cleanup(void)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
+
     if (!g_initialized) {
         return;
     }
+
+    // Null callback first so any in-flight dispatch_command that acquires the
+    // mutex after us will no-op.
+    g_callback = nullptr;
+    g_user_data = nullptr;
 
     @autoreleasepool {
         MPRemoteCommandCenter* commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
@@ -219,8 +225,6 @@ void xune_nowplaying_cleanup(void)
         [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nil;
     }
 
-    g_callback = nullptr;
-    g_user_data = nullptr;
     g_initialized = false;
 }
 
@@ -228,6 +232,7 @@ void xune_nowplaying_cleanup(void)
 
 void xune_nowplaying_set_metadata(const xune_track_metadata_t* metadata)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_initialized || !metadata) {
         return;
     }
@@ -301,6 +306,7 @@ void xune_nowplaying_set_metadata(const xune_track_metadata_t* metadata)
 
 void xune_nowplaying_clear_metadata(void)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -314,6 +320,7 @@ void xune_nowplaying_clear_metadata(void)
 
 void xune_nowplaying_set_playback_state(xune_playback_state_t state)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -341,6 +348,7 @@ void xune_nowplaying_set_playback_state(xune_playback_state_t state)
 
 void xune_nowplaying_set_position(int64_t position_ms, int64_t duration_ms)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -368,6 +376,7 @@ void xune_nowplaying_set_position(int64_t position_ms, int64_t duration_ms)
 
 void xune_nowplaying_set_playback_rate(float rate)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -388,6 +397,7 @@ void xune_nowplaying_set_playback_rate(float rate)
 
 void xune_nowplaying_set_command_enabled(xune_media_command_t command, bool enabled)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
