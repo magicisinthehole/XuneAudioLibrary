@@ -87,6 +87,67 @@ else()
     message(STATUS "✓ Using existing Chromaprint library")
 endif()
 
+# ============================================================================
+# libebur128 (EBU R128 loudness measurement)
+# ============================================================================
+
+set(EBUR128_ROOT "${CMAKE_SOURCE_DIR}/vendor/libebur128")
+set(EBUR128_BUILD_DIR "${CMAKE_BINARY_DIR}/vendor/ebur128-build")
+
+if(APPLE)
+    set(EBUR128_LIBRARY "${EBUR128_BUILD_DIR}/libebur128.dylib")
+elseif(WIN32)
+    set(EBUR128_LIBRARY "${EBUR128_BUILD_DIR}/ebur128.dll")
+else()
+    set(EBUR128_LIBRARY "${EBUR128_BUILD_DIR}/libebur128.so")
+endif()
+
+if(NOT EXISTS "${EBUR128_LIBRARY}")
+    message(STATUS "libebur128 not found, building from source...")
+
+    file(MAKE_DIRECTORY ${EBUR128_BUILD_DIR})
+
+    set(EBUR128_PLATFORM_FLAGS)
+    if(APPLE)
+        list(APPEND EBUR128_PLATFORM_FLAGS -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15)
+    endif()
+
+    execute_process(
+        COMMAND ${CMAKE_COMMAND}
+            -S ${EBUR128_ROOT}
+            -B ${EBUR128_BUILD_DIR}
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            -DBUILD_SHARED_LIBS=ON
+            -DENABLE_TESTS=OFF
+            ${EBUR128_PLATFORM_FLAGS}
+            -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/install
+        RESULT_VARIABLE EBUR128_CMAKE_RESULT
+        OUTPUT_VARIABLE EBUR128_CMAKE_OUTPUT
+        ERROR_VARIABLE EBUR128_CMAKE_ERROR
+    )
+
+    if(NOT EBUR128_CMAKE_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to configure libebur128:\n${EBUR128_CMAKE_ERROR}")
+    endif()
+
+    message(STATUS "Building libebur128...")
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} --build ${EBUR128_BUILD_DIR} --config ${CMAKE_BUILD_TYPE}
+        RESULT_VARIABLE EBUR128_BUILD_RESULT
+        OUTPUT_VARIABLE EBUR128_BUILD_OUTPUT
+        ERROR_VARIABLE EBUR128_BUILD_ERROR
+    )
+
+    if(NOT EBUR128_BUILD_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to build libebur128:\n${EBUR128_BUILD_ERROR}")
+    endif()
+
+    message(STATUS "✓ libebur128 built successfully")
+else()
+    message(STATUS "✓ Using existing libebur128")
+endif()
+
 # macOS specific settings
 if(APPLE)
     find_library(ACCELERATE_LIBRARY Accelerate REQUIRED)
@@ -131,6 +192,15 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         COMMAND ${CMAKE_COMMAND} -E copy "${CHROMAPRINT_LIBRARY}" "${RUNTIME_DIR}/"
         COMMAND ${CMAKE_COMMAND} -E echo "Copied ${CHROMAPRINT_LIBRARY} -> ${RUNTIME_DIR}/"
         COMMENT "Copying Chromaprint library to Xune.Audio.Native runtime directory"
+        VERBATIM
+    )
+
+    # Custom target to copy libebur128
+    add_custom_target(copy_ebur128 ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${RUNTIME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy "${EBUR128_LIBRARY}" "${RUNTIME_DIR}/"
+        COMMAND ${CMAKE_COMMAND} -E echo "Copied ${EBUR128_LIBRARY} -> ${RUNTIME_DIR}/"
+        COMMENT "Copying libebur128 to Xune.Audio.Native runtime directory"
         VERBATIM
     )
 
@@ -473,6 +543,7 @@ message(STATUS "  Project:              ${PROJECT_NAME} v${PROJECT_VERSION}")
 message(STATUS "  Build type:           ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:         ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Chromaprint library:  ${CHROMAPRINT_LIBRARY}")
+message(STATUS "  libebur128:           ${EBUR128_LIBRARY}")
 if(APPLE)
 message(STATUS "  Inference backend:    MLX (Metal GPU)")
 else()
