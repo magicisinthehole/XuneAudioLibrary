@@ -6,3 +6,6 @@
 	url = https://github.com/magicisinthehole/FFmpeg-with-WMA-Lossless-Enc.git
 	branch = wma-lossless-encoder-7.1
 	shallow = true
+[submodule "vendor/libebur128"]
+	path = vendor/libebur128
+	url = https://github.com/jiixyj/libebur128.git
