@@ -14,10 +14,10 @@
 
 #include <mutex>
 
-// Mutex protecting all mutable global state. Callbacks fire on an OS-managed
-// thread; init/cleanup may be called from any thread. The mutex prevents
-// TOCTOU races where a callback reads g_callback while cleanup nulls it.
-static std::mutex g_mutex;
+// Recursive mutex protecting all mutable global state. Callbacks fire on an
+// OS-managed thread; init/cleanup may be called from any thread. Recursive
+// because command callbacks re-enter set_* functions on the same thread.
+static std::recursive_mutex g_mutex;
 
 // Global state (guarded by g_mutex)
 static xune_command_callback_t g_callback = nullptr;
@@ -35,9 +35,9 @@ static id g_seekTarget = nil;
 static id g_skipForwardTarget = nil;
 static id g_skipBackwardTarget = nil;
 
-// Helper: invoke the callback under the mutex. Called from each command handler block.
+// Helper: invoke the callback under the recursive mutex.
 static void dispatch_command(xune_media_command_t cmd, int64_t param) {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if (g_callback) {
         g_callback(cmd, param, g_user_data);
     }
@@ -52,7 +52,7 @@ int xune_nowplaying_init(
 {
     (void)window_handle;  // Not needed on macOS
 
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
 
     if (g_initialized) {
         return 0;  // Already initialized
@@ -169,7 +169,7 @@ bool xune_nowplaying_is_available(void)
 
 void xune_nowplaying_cleanup(void)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
 
     if (!g_initialized) {
         return;
@@ -232,7 +232,7 @@ void xune_nowplaying_cleanup(void)
 
 void xune_nowplaying_set_metadata(const xune_track_metadata_t* metadata)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if (!g_initialized || !metadata) {
         return;
     }
@@ -306,7 +306,7 @@ void xune_nowplaying_set_metadata(const xune_track_metadata_t* metadata)
 
 void xune_nowplaying_clear_metadata(void)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -320,7 +320,7 @@ void xune_nowplaying_clear_metadata(void)
 
 void xune_nowplaying_set_playback_state(xune_playback_state_t state)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -348,7 +348,7 @@ void xune_nowplaying_set_playback_state(xune_playback_state_t state)
 
 void xune_nowplaying_set_position(int64_t position_ms, int64_t duration_ms)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -376,7 +376,7 @@ void xune_nowplaying_set_position(int64_t position_ms, int64_t duration_ms)
 
 void xune_nowplaying_set_playback_rate(float rate)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
@@ -397,7 +397,7 @@ void xune_nowplaying_set_playback_rate(float rate)
 
 void xune_nowplaying_set_command_enabled(xune_media_command_t command, bool enabled)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if (!g_initialized) {
         return;
     }
