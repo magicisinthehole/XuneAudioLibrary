@@ -49,18 +49,20 @@ public:
     bool IsReady() const;
 
     /**
-     * Run inference on a batch of mel spectrogram chunks.
+     * Run inference on a batch of mel spectrogram chunks, writing directly
+     * into a caller-provided buffer. Eliminates intermediate std::vector copy.
      *
      * @param input_data Batch of mel chunks, layout: float[batch_size * 1 * n_mels * n_frames]
      * @param batch_size Number of chunks in the batch
      * @param n_mels Number of mel bands (128)
      * @param n_frames Number of time frames per chunk (96)
-     * @param output Receives the output embeddings, layout: float[batch_size * kEmbeddingDim]
+     * @param output_buffer Caller-owned buffer, must hold batch_size * kEmbeddingDim floats
+     * @param output_buffer_size Size of output buffer in floats (for bounds checking)
      * @return true on success
      */
-    bool RunInference(const float* input_data, int batch_size,
-                      int n_mels, int n_frames,
-                      std::vector<float>& output);
+    bool RunInferenceInto(const float* input_data, int batch_size,
+                          int n_mels, int n_frames,
+                          float* output_buffer, int output_buffer_size);
 
 private:
     struct Impl;

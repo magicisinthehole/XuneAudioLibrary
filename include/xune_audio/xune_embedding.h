@@ -4,10 +4,10 @@
  *
  * Two-phase pipeline for computing audio embeddings:
  *   1. xune_embedding_compute_mel() — mel spectrogram + chunking (thread-safe: stack-local FFT buffers)
- *   2. xune_embedding_infer() — batched model inference on mel chunks
+ *   2. xune_embedding_infer_into() — batched model inference, zero-copy into caller buffer
  *
  * Cross-track batching: compute mel for multiple tracks concurrently, then
- * concatenate their mel data and call xune_embedding_infer() once with the
+ * concatenate their mel data and call xune_embedding_infer_into() once with the
  * combined total_chunks for a single batched inference call.
  *
  * The C# side handles:
@@ -49,7 +49,6 @@ typedef enum {
 
 typedef struct xune_embedding_session xune_embedding_session_t;
 typedef struct xune_embedding_mel xune_embedding_mel_t;
-typedef struct xune_embedding_result xune_embedding_result_t;
 
 /* ============================================================================
  * Session Lifecycle
@@ -102,7 +101,7 @@ XUNE_AUDIO_API bool xune_embedding_is_available(
  * on the same session are safe.
  *
  * Each chunk is (128 mel bins, 96 time frames) representing ~3.125s of audio.
- * Output data is ready for direct use with xune_embedding_infer().
+ * Output data is ready for direct use with xune_embedding_infer_into().
  *
  * @param session Active embedding session
  * @param pcm_mono_16k Mono 16kHz float32 PCM audio samples
@@ -146,71 +145,34 @@ XUNE_AUDIO_API void xune_embedding_free_mel(
     xune_embedding_mel_t* mel);
 
 /* ============================================================================
- * Phase 2: Batched Inference
+ * Phase 2: Batched Inference (zero-copy into caller buffer)
  * ============================================================================ */
 
 /**
- * @brief Run batched inference on pre-computed mel chunks.
+ * @brief Run batched inference, writing embeddings directly into a caller-owned buffer.
+ *
+ * Eliminates intermediate allocation — the inference engine copies directly from
+ * its output tensor into the caller's buffer.
  *
  * Mel chunks from multiple tracks can be concatenated for cross-track batching.
  * The caller is responsible for tracking per-track chunk counts to split the
- * result embeddings back to individual tracks.
+ * embeddings back to individual tracks.
  *
  * @param session Active embedding session
  * @param mel_data Concatenated mel chunk data, float[total_chunks * 128 * 96]
  * @param total_chunks Total number of chunks across all tracks
- * @param out_result Receives the result handle (caller must free with xune_embedding_free_result)
+ * @param out_embeddings Caller-owned buffer, must hold total_chunks * 768 floats
+ * @param out_buffer_floats Size of out_embeddings in floats (for bounds validation)
+ * @param out_dimensions Receives the embedding dimensions (always 768)
  * @return XUNE_EMBEDDING_OK on success, error code on failure
  */
-XUNE_AUDIO_API xune_embedding_error_t xune_embedding_infer(
+XUNE_AUDIO_API xune_embedding_error_t xune_embedding_infer_into(
     xune_embedding_session_t* session,
     const float* mel_data,
     int total_chunks,
-    xune_embedding_result_t** out_result);
-
-/* ============================================================================
- * Result Access
- * ============================================================================ */
-
-/**
- * @brief Get pointer to the embedding data.
- *
- * Layout: float[chunk_count * dimensions], row-major (chunk-first).
- * Pointer is valid until xune_embedding_free_result() is called.
- *
- * @param result Result handle
- * @return Pointer to float array, or NULL if result is invalid
- */
-XUNE_AUDIO_API const float* xune_embedding_result_data(
-    const xune_embedding_result_t* result);
-
-/**
- * @brief Get the number of chunks in the result.
- *
- * @param result Result handle
- * @return Number of chunks, or 0 if result is invalid
- */
-XUNE_AUDIO_API int xune_embedding_result_chunk_count(
-    const xune_embedding_result_t* result);
-
-/**
- * @brief Get the embedding dimensions per chunk.
- *
- * Always 768 for the Myna hybrid model.
- *
- * @param result Result handle
- * @return Dimensions per chunk, or 0 if result is invalid
- */
-XUNE_AUDIO_API int xune_embedding_result_dimensions(
-    const xune_embedding_result_t* result);
-
-/**
- * @brief Free an embedding result.
- *
- * @param result Result to free (NULL is safe)
- */
-XUNE_AUDIO_API void xune_embedding_free_result(
-    xune_embedding_result_t* result);
+    float* out_embeddings,
+    int out_buffer_floats,
+    int* out_dimensions);
 
 #ifdef __cplusplus
 }

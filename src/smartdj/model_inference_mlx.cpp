@@ -274,10 +274,11 @@ bool ModelInference::IsReady() const {
     return impl_ && impl_->ready;
 }
 
-bool ModelInference::RunInference(const float* input_data, int batch_size,
-                                  int n_mels, int n_frames,
-                                  std::vector<float>& output) {
-    if (!impl_->ready || !input_data || batch_size <= 0) {
+bool ModelInference::RunInferenceInto(const float* input_data, int batch_size,
+                                      int n_mels, int n_frames,
+                                      float* output_buffer, int output_buffer_size) {
+    if (!impl_->ready || !input_data || batch_size <= 0 ||
+        !output_buffer || output_buffer_size < batch_size * kEmbeddingDim) {
         return false;
     }
 
@@ -339,11 +340,10 @@ bool ModelInference::RunInference(const float* input_data, int batch_size,
         // Trigger Metal GPU computation for final ops
         mx::eval(result);
 
-        // Copy result to output vector
+        // Copy directly from MLX result to caller's buffer
         size_t output_count = static_cast<size_t>(batch_size) * kEmbeddingDim;
-        output.resize(output_count);
-        std::memcpy(output.data(), result.data<float>(), output_count * sizeof(float));
-
+        std::memcpy(output_buffer, result.data<float>(), output_count * sizeof(float));
+        
         // Release Metal buffer cache to prevent memory accumulation across batches
         mx::clear_cache();
 

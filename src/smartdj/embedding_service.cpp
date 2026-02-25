@@ -36,12 +36,6 @@ struct xune_embedding_mel {
     int chunk_count = 0;
 };
 
-struct xune_embedding_result {
-    std::vector<float> data;
-    int chunk_count = 0;
-    int dimensions = 0;
-};
-
 // ============================================================================
 // Constants matching the Myna model training configuration
 // ============================================================================
@@ -162,14 +156,17 @@ void xune_embedding_free_mel(xune_embedding_mel_t* mel) {
 }
 
 // ============================================================================
-// Phase 2: Batched Inference
+// Phase 2: Batched Inference (zero-copy into caller buffer)
 // ============================================================================
 
-xune_embedding_error_t xune_embedding_infer(xune_embedding_session_t* session,
-                                             const float* mel_data,
-                                             int total_chunks,
-                                             xune_embedding_result_t** out_result) {
-    if (!session || !mel_data || total_chunks <= 0 || !out_result) {
+xune_embedding_error_t xune_embedding_infer_into(xune_embedding_session_t* session,
+                                                  const float* mel_data,
+                                                  int total_chunks,
+                                                  float* out_embeddings,
+                                                  int out_buffer_floats,
+                                                  int* out_dimensions) {
+    if (!session || !mel_data || total_chunks <= 0 ||
+        !out_embeddings || !out_dimensions) {
         return XUNE_EMBEDDING_ERROR_INVALID_ARGS;
     }
 
@@ -177,41 +174,22 @@ xune_embedding_error_t xune_embedding_infer(xune_embedding_session_t* session,
         return XUNE_EMBEDDING_ERROR_NOT_AVAILABLE;
     }
 
+    const int dims = xune::smartdj::ModelInference::kEmbeddingDim;
+    int required = total_chunks * dims;
+    if (out_buffer_floats < required) {
+        return XUNE_EMBEDDING_ERROR_INVALID_ARGS;
+    }
+
     const int n_mels = xune::smartdj::MelSpectrogram::kNMels;
 
-    std::vector<float> embeddings;
-    if (!session->model.RunInference(mel_data, total_chunks,
-                                      n_mels, kNFramesPerChunk, embeddings)) {
+    if (!session->model.RunInferenceInto(mel_data, total_chunks,
+                                          n_mels, kNFramesPerChunk,
+                                          out_embeddings, out_buffer_floats)) {
         return XUNE_EMBEDDING_ERROR_INFERENCE;
     }
 
-    auto result = std::make_unique<xune_embedding_result>();
-    result->data = std::move(embeddings);
-    result->chunk_count = total_chunks;
-    result->dimensions = xune::smartdj::ModelInference::kEmbeddingDim;
-
-    *out_result = result.release();
+    *out_dimensions = dims;
     return XUNE_EMBEDDING_OK;
-}
-
-// ============================================================================
-// Result Access
-// ============================================================================
-
-const float* xune_embedding_result_data(const xune_embedding_result_t* result) {
-    return result ? result->data.data() : nullptr;
-}
-
-int xune_embedding_result_chunk_count(const xune_embedding_result_t* result) {
-    return result ? result->chunk_count : 0;
-}
-
-int xune_embedding_result_dimensions(const xune_embedding_result_t* result) {
-    return result ? result->dimensions : 0;
-}
-
-void xune_embedding_free_result(xune_embedding_result_t* result) {
-    delete result;
 }
 
 }  // extern "C"

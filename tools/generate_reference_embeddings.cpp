@@ -80,9 +80,11 @@ int main(int argc, char* argv[]) {
     int mel_chunks = xune_embedding_mel_chunk_count(mel);
     fprintf(stderr, "Computed %d mel chunk(s)\n", mel_chunks);
 
-    // Phase 2: Batched inference
-    xune_embedding_result_t* result = nullptr;
-    err = xune_embedding_infer(session, xune_embedding_mel_data(mel), mel_chunks, &result);
+    // Phase 2: Batched inference into caller buffer
+    std::vector<float> embeddings(mel_chunks * 768);
+    int dims = 0;
+    err = xune_embedding_infer_into(session, xune_embedding_mel_data(mel), mel_chunks,
+                                     embeddings.data(), static_cast<int>(embeddings.size()), &dims);
     if (err != XUNE_EMBEDDING_OK) {
         fprintf(stderr, "Error: inference failed (error %d)\n", err);
         xune_embedding_free_mel(mel);
@@ -90,17 +92,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int chunks = xune_embedding_result_chunk_count(result);
-    int dims = xune_embedding_result_dimensions(result);
-    const float* data = xune_embedding_result_data(result);
-
-    fprintf(stderr, "Computed %d chunk(s) x %d dims\n", chunks, dims);
+    fprintf(stderr, "Computed %d chunk(s) x %d dims\n", mel_chunks, dims);
 
     // Write embeddings
-    size_t total = static_cast<size_t>(chunks) * dims;
-    if (!WriteFloatBin(output_path, data, total)) {
+    size_t total = static_cast<size_t>(mel_chunks) * dims;
+    if (!WriteFloatBin(output_path, embeddings.data(), total)) {
         fprintf(stderr, "Error: failed to write %s\n", output_path);
-        xune_embedding_free_result(result);
         xune_embedding_free_mel(mel);
         xune_embedding_destroy(session);
         return 1;
@@ -108,7 +105,6 @@ int main(int argc, char* argv[]) {
 
     fprintf(stderr, "Wrote reference embeddings: %s (%zu floats)\n", output_path, total);
 
-    xune_embedding_free_result(result);
     xune_embedding_free_mel(mel);
     xune_embedding_destroy(session);
     return 0;

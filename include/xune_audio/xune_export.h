@@ -15,7 +15,7 @@
  * runtime via xune_audio_api_version() to detect ABI mismatches.
  * ============================================================================ */
 
-#define XUNE_AUDIO_API_VERSION 1
+#define XUNE_AUDIO_API_VERSION 2
 
 /* ============================================================================
  * Platform Export Macro

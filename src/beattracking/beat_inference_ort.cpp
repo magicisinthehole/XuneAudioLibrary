@@ -23,6 +23,7 @@ struct BeatInference::Impl {
     OrtEnv* env = nullptr;
     OrtSession* session = nullptr;
     OrtSessionOptions* session_options = nullptr;
+    OrtMemoryInfo* memory_info = nullptr;
 
     const char* input_name = "spectrogram";
     const char* output_names[2] = {"beat_logits", "downbeat_logits"};
@@ -34,6 +35,7 @@ struct BeatInference::Impl {
     }
 
     ~Impl() {
+        if (memory_info) api->ReleaseMemoryInfo(memory_info);
         if (session) api->ReleaseSession(session);
         if (session_options) api->ReleaseSessionOptions(session_options);
         if (env) api->ReleaseEnv(env);
@@ -92,6 +94,14 @@ bool BeatInference::LoadModel(const std::string& model_path) {
 #endif
 
     impl_->ready = true;
+
+    // Create CPU memory info once — reused across all inference calls.
+    if (!impl_->CheckStatus(
+            api.CreateCpuMemoryInfo(OrtDeviceAllocator, OrtMemTypeDefault, &impl_->memory_info))) {
+        impl_->ready = false;
+        return false;
+    }
+
     fprintf(stderr, "[xune_beat] ORT model loaded: %s\n", model_path.c_str());
     return true;
 }
@@ -109,12 +119,6 @@ bool BeatInference::RunInference(const float* mel_data, int batch_size, int n_fr
 
     auto& api = *impl_->api;
 
-    OrtMemoryInfo* memory_info = nullptr;
-    if (!impl_->CheckStatus(
-            api.CreateCpuMemoryInfo(OrtDeviceAllocator, OrtMemTypeDefault, &memory_info))) {
-        return false;
-    }
-
     // Input: (batch_size, n_frames, 128)
     int64_t input_shape[3] = {batch_size, n_frames, 128};
     size_t input_size = static_cast<size_t>(batch_size) * n_frames * 128 * sizeof(float);
@@ -122,14 +126,12 @@ bool BeatInference::RunInference(const float* mel_data, int batch_size, int n_fr
     OrtValue* input_tensor = nullptr;
     bool ok = impl_->CheckStatus(
         api.CreateTensorWithDataAsOrtValue(
-            memory_info,
+            impl_->memory_info,
             const_cast<float*>(mel_data),
             input_size,
             input_shape, 3,
             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
             &input_tensor));
-
-    api.ReleaseMemoryInfo(memory_info);
 
     if (!ok) {
         return false;

@@ -24,6 +24,7 @@ struct ModelInference::Impl {
     OrtEnv* env = nullptr;
     OrtSession* session = nullptr;
     OrtSessionOptions* session_options = nullptr;
+    OrtMemoryInfo* memory_info = nullptr;
 
     // Cached input/output names from model metadata
     const char* input_name = "mel_spectrogram";
@@ -36,6 +37,7 @@ struct ModelInference::Impl {
     }
 
     ~Impl() {
+        if (memory_info) api->ReleaseMemoryInfo(memory_info);
         if (session) api->ReleaseSession(session);
         if (session_options) api->ReleaseSessionOptions(session_options);
         if (env) api->ReleaseEnv(env);
@@ -113,6 +115,17 @@ bool ModelInference::LoadModel(const std::string& model_path,
 #endif
 
     impl_->ready = true;
+
+    // Create CPU memory info once — reused across all inference calls.
+    // Uses OrtDeviceAllocator (malloc/free) instead of OrtArenaAllocator.
+    // The arena allocator grows to peak batch size and never returns memory
+    // to the OS, causing steady RSS growth across 1500+ tracks.
+    if (!impl_->CheckStatus(
+            api.CreateCpuMemoryInfo(OrtDeviceAllocator, OrtMemTypeDefault, &impl_->memory_info))) {
+        impl_->ready = false;
+        return false;
+    }
+
     return true;
 }
 
@@ -120,27 +133,17 @@ bool ModelInference::IsReady() const {
     return impl_ && impl_->ready;
 }
 
-bool ModelInference::RunInference(const float* input_data, int batch_size,
-                                  int n_mels, int n_frames,
-                                  std::vector<float>& output) {
-    if (!impl_->ready || !input_data || batch_size <= 0) {
+bool ModelInference::RunInferenceInto(const float* input_data, int batch_size,
+                                      int n_mels, int n_frames,
+                                      float* output_buffer, int output_buffer_size) {
+    if (!impl_->ready || !input_data || batch_size <= 0 ||
+        !output_buffer || output_buffer_size < batch_size * kEmbeddingDim) {
         return false;
     }
 
     auto& api = *impl_->api;
 
-    // Create memory info for CPU — use OrtDeviceAllocator (malloc/free) instead of
-    // OrtArenaAllocator. The arena allocator grows to peak batch size and never
-    // returns memory to the OS, causing steady RSS growth across 1500+ tracks
-    // with varying batch sizes. The malloc/free overhead is negligible compared
-    // to the ~50ms inference time per batch.
-    OrtMemoryInfo* memory_info = nullptr;
-    if (!impl_->CheckStatus(
-            api.CreateCpuMemoryInfo(OrtDeviceAllocator, OrtMemTypeDefault, &memory_info))) {
-        return false;
-    }
-
-    // Create input tensor
+    // Create input tensor using cached memory info
     // Shape: (batch_size, 1, n_mels, n_frames)
     int64_t input_shape[4] = {batch_size, 1, n_mels, n_frames};
     size_t input_size = static_cast<size_t>(batch_size) * 1 * n_mels * n_frames * sizeof(float);
@@ -148,14 +151,12 @@ bool ModelInference::RunInference(const float* input_data, int batch_size,
     OrtValue* input_tensor = nullptr;
     bool ok = impl_->CheckStatus(
         api.CreateTensorWithDataAsOrtValue(
-            memory_info,
+            impl_->memory_info,
             const_cast<float*>(input_data),  // ORT API takes non-const void*
             input_size,
             input_shape, 4,
             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
             &input_tensor));
-
-    api.ReleaseMemoryInfo(memory_info);
 
     if (!ok) {
         return false;
@@ -177,7 +178,7 @@ bool ModelInference::RunInference(const float* input_data, int batch_size,
         return false;
     }
 
-    // Read output data
+    // Copy directly from ORT output tensor to caller's buffer
     float* output_data = nullptr;
     ok = impl_->CheckStatus(
         api.GetTensorMutableData(output_tensor, (void**)&output_data));
@@ -187,10 +188,8 @@ bool ModelInference::RunInference(const float* input_data, int batch_size,
         return false;
     }
 
-    // Copy output (batch_size * kEmbeddingDim floats)
     size_t output_count = static_cast<size_t>(batch_size) * kEmbeddingDim;
-    output.resize(output_count);
-    std::memcpy(output.data(), output_data, output_count * sizeof(float));
+    std::memcpy(output_buffer, output_data, output_count * sizeof(float));
 
     api.ReleaseValue(output_tensor);
     return true;
