@@ -288,10 +288,10 @@ endif()
 
 # Platform FFT library for SmartDJ mel spectrogram
 # macOS: Accelerate/vDSP (already found above)
-# Linux/Windows: FFTW3 double-precision (already a Chromaprint dependency)
+# Linux/Windows: FFTW3F single-precision (eliminates float↔double conversion overhead)
 if(NOT APPLE)
-    find_library(FFTW3_LIBRARY fftw3 REQUIRED)
-    message(STATUS "Found FFTW3: ${FFTW3_LIBRARY}")
+    find_library(FFTW3F_LIBRARY fftw3f REQUIRED)
+    message(STATUS "Found FFTW3F: ${FFTW3F_LIBRARY}")
 endif()
 
 # ============================================================================
@@ -384,8 +384,8 @@ if(APPLE)
     # Accelerate is already linked via PLATFORM_LIBRARIES / NOWPLAYING_LIBS on macOS
     target_link_libraries(xune_audio PRIVATE ${ACCELERATE_LIBRARY})
 else()
-    # FFTW3 double-precision on Linux/Windows (always available via Chromaprint dependency)
-    target_link_libraries(xune_audio PRIVATE ${FFTW3_LIBRARY})
+    # FFTW3F single-precision on Linux/Windows
+    target_link_libraries(xune_audio PRIVATE ${FFTW3F_LIBRARY})
 endif()
 
 # macOS-specific settings
@@ -470,7 +470,7 @@ if(BUILD_TESTS)
     if(APPLE)
         target_link_libraries(smartdj_test PRIVATE ${ACCELERATE_LIBRARY})
     else()
-        target_link_libraries(smartdj_test PRIVATE ${FFTW3_LIBRARY})
+        target_link_libraries(smartdj_test PRIVATE ${FFTW3F_LIBRARY})
     endif()
     target_include_directories(smartdj_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -501,7 +501,7 @@ if(BUILD_TESTS)
     if(APPLE)
         target_link_libraries(beat_test PRIVATE ${ACCELERATE_LIBRARY})
     else()
-        target_link_libraries(beat_test PRIVATE ${FFTW3_LIBRARY})
+        target_link_libraries(beat_test PRIVATE ${FFTW3F_LIBRARY})
     endif()
     target_include_directories(beat_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -520,7 +520,7 @@ if(BUILD_TESTS)
     if(APPLE)
         target_link_libraries(generate_reference_embeddings PRIVATE ${ACCELERATE_LIBRARY})
     else()
-        target_link_libraries(generate_reference_embeddings PRIVATE ${FFTW3_LIBRARY})
+        target_link_libraries(generate_reference_embeddings PRIVATE ${FFTW3F_LIBRARY})
     endif()
     target_include_directories(generate_reference_embeddings PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src

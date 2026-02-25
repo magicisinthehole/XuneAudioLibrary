@@ -26,6 +26,7 @@
     #include <Accelerate/Accelerate.h>
 #else
     #include <fftw3.h>
+    #include "../fftw_plan_mutex.h"
 #endif
 
 namespace xune {
@@ -86,18 +87,20 @@ struct BeatMelSpectrogram::Impl {
     }
 
 #else
-    fftw_plan plan = nullptr;
+    fftwf_plan plan = nullptr;
 
     Impl() {
-        std::vector<double> tmp_input(kNFft);
-        std::vector<fftw_complex> tmp_output(kFreqBins);
-        plan = fftw_plan_dft_r2c_1d(kNFft, tmp_input.data(),
-                                     tmp_output.data(), FFTW_MEASURE);
+        std::lock_guard<std::mutex> lock(FftwPlanMutex());
+        std::vector<float> tmp_input(kNFft);
+        std::vector<fftwf_complex> tmp_output(kFreqBins);
+        plan = fftwf_plan_dft_r2c_1d(kNFft, tmp_input.data(),
+                                      tmp_output.data(), FFTW_MEASURE);
     }
 
     ~Impl() {
         if (plan) {
-            fftw_destroy_plan(plan);
+            std::lock_guard<std::mutex> lock(FftwPlanMutex());
+            fftwf_destroy_plan(plan);
         }
     }
 
@@ -105,21 +108,20 @@ struct BeatMelSpectrogram::Impl {
     // torchaudio normalized="frame_length" maps to torch.stft(normalized=True),
     // which divides by sqrt(n_fft), not n_fft.
     void ComputeMagSpectrum(const float* windowed_frame, float* mag_spectrum) const {
-        double fft_input[kNFft];
-        fftw_complex fft_output[kFreqBins];
+        float fft_input[kNFft];
+        fftwf_complex fft_output[kFreqBins];
 
-        for (int i = 0; i < kNFft; i++) {
-            fft_input[i] = static_cast<double>(windowed_frame[i]);
-        }
+        // Direct copy — no float→double conversion needed with FFTW3F
+        std::memcpy(fft_input, windowed_frame, kNFft * sizeof(float));
 
-        fftw_execute_dft_r2c(plan, fft_input, fft_output);
+        fftwf_execute_dft_r2c(plan, fft_input, fft_output);
 
-        // FFTW3 returns unnormalized DFT.
+        // FFTW3F returns unnormalized DFT.
         // Magnitude = |DFT| / sqrt(n_fft) (frame_length normalization)
         static const float kNormFactor = 1.0f / std::sqrt(static_cast<float>(kNFft));
         for (int i = 0; i < kFreqBins; i++) {
-            float re = static_cast<float>(fft_output[i][0]);
-            float im = static_cast<float>(fft_output[i][1]);
+            float re = fft_output[i][0];
+            float im = fft_output[i][1];
             mag_spectrum[i] = std::sqrt(re * re + im * im) * kNormFactor;
         }
     }

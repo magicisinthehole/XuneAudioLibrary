@@ -20,6 +20,7 @@
     #include <Accelerate/Accelerate.h>
 #else
     #include <fftw3.h>
+    #include "../fftw_plan_mutex.h"
 #endif
 
 namespace xune {
@@ -81,45 +82,46 @@ struct MelSpectrogram::Impl {
     }
 
 #else
-    // FFTW3 plan (read-only after construction — thread-safe with new-array execute)
-    fftw_plan plan = nullptr;
+    // FFTW3F single-precision plan (read-only after construction — thread-safe with new-array execute)
+    fftwf_plan plan = nullptr;
 
     Impl() {
         // Create plan with temporary buffers. FFTW only uses these during planning;
-        // fftw_execute_dft_r2c will use caller-supplied arrays at execution time.
-        std::vector<double> tmp_input(kNFft);
-        std::vector<fftw_complex> tmp_output(kFreqBins);
-        plan = fftw_plan_dft_r2c_1d(kNFft, tmp_input.data(),
-                                     tmp_output.data(), FFTW_MEASURE);
+        // fftwf_execute_dft_r2c will use caller-supplied arrays at execution time.
+        // Planner is NOT thread-safe — must hold process-wide mutex.
+        std::lock_guard<std::mutex> lock(FftwPlanMutex());
+        std::vector<float> tmp_input(kNFft);
+        std::vector<fftwf_complex> tmp_output(kFreqBins);
+        plan = fftwf_plan_dft_r2c_1d(kNFft, tmp_input.data(),
+                                      tmp_output.data(), FFTW_MEASURE);
     }
 
     ~Impl() {
         if (plan) {
-            fftw_destroy_plan(plan);
+            std::lock_guard<std::mutex> lock(FftwPlanMutex());
+            fftwf_destroy_plan(plan);
         }
     }
 
-    // Thread-safe: uses stack-local buffers + fftw_execute_dft_r2c (new-array variant).
+    // Thread-safe: uses stack-local buffers + fftwf_execute_dft_r2c (new-array variant).
     // Per FFTW docs: "always safe to call in a multi-threaded program as long as
     // different threads use different arrays."
     void ComputePowerSpectrum(const float* windowed_frame, float* power_spectrum) const {
         // Stack-local buffers — each concurrent call uses its own storage
-        double fft_input[kNFft];
-        fftw_complex fft_output[kFreqBins];
+        float fft_input[kNFft];
+        fftwf_complex fft_output[kFreqBins];
 
-        // Convert float -> double for FFTW3
-        for (int i = 0; i < kNFft; i++) {
-            fft_input[i] = static_cast<double>(windowed_frame[i]);
-        }
+        // Direct copy — no float→double conversion needed with FFTW3F
+        std::memcpy(fft_input, windowed_frame, kNFft * sizeof(float));
 
         // New-array execute variant: thread-safe with distinct per-call buffers
-        fftw_execute_dft_r2c(plan, fft_input, fft_output);
+        fftwf_execute_dft_r2c(plan, fft_input, fft_output);
 
-        // FFTW3 returns the unnormalized DFT — no scaling needed.
+        // FFTW3F returns the unnormalized DFT — no scaling needed.
         // PyTorch/nnAudio also use unnormalized DFT for power spectrogram.
         for (int i = 0; i < kFreqBins; i++) {
-            float re = static_cast<float>(fft_output[i][0]);
-            float im = static_cast<float>(fft_output[i][1]);
+            float re = fft_output[i][0];
+            float im = fft_output[i][1];
             power_spectrum[i] = re * re + im * im;
         }
     }
