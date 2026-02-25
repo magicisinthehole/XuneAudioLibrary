@@ -343,9 +343,6 @@ bool ModelInference::RunInferenceInto(const float* input_data, int batch_size,
         // Copy directly from MLX result to caller's buffer
         size_t output_count = static_cast<size_t>(batch_size) * kEmbeddingDim;
         std::memcpy(output_buffer, result.data<float>(), output_count * sizeof(float));
-        
-        // Release Metal buffer cache to prevent memory accumulation across batches
-        mx::clear_cache();
 
         return true;
     } catch (const std::exception& e) {

@@ -418,9 +418,6 @@ bool BeatInference::RunInference(const float* mel_data, int batch_size, int n_fr
         std::memcpy(beat_logits.data(), beat.data<float>(), output_count * sizeof(float));
         std::memcpy(downbeat_logits.data(), downbeat.data<float>(), output_count * sizeof(float));
 
-        // Release Metal buffer cache to prevent memory accumulation across chunks/tracks
-        mx::clear_cache();
-
         return true;
     } catch (const std::exception& e) {
         fprintf(stderr, "[xune_beat] MLX inference failed: %s\n", e.what());
