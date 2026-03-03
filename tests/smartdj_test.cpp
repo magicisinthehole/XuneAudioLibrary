@@ -14,6 +14,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <numeric>
 #include <string>
