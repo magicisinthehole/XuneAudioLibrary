@@ -364,6 +364,11 @@ if(APPLE)
         MACOSX_RPATH OFF
         INSTALL_NAME_DIR "@loader_path"
     )
+elseif(UNIX)
+    set_target_properties(xune_audio PROPERTIES
+        BUILD_RPATH "$ORIGIN"
+        INSTALL_RPATH "$ORIGIN"
+    )
 endif()
 
 # Enable exports macro
