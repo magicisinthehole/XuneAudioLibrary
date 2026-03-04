@@ -445,6 +445,10 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
                     "${RUNTIME_DIR}/$<TARGET_FILE_NAME:xune_audio>"
                 COMMAND install_name_tool -id "@loader_path/libxune_audio.1.dylib"
                     "${RUNTIME_DIR}/libxune_audio.dylib"
+                # Re-sign ad-hoc (install_name_tool invalidates signatures)
+                COMMAND codesign --force --sign - "${RUNTIME_DIR}/libmlx.dylib"
+                COMMAND codesign --force --sign - "${RUNTIME_DIR}/$<TARGET_FILE_NAME:xune_audio>"
+                COMMAND codesign --force --sign - "${RUNTIME_DIR}/libxune_audio.dylib"
                 COMMENT "Bundling libmlx.dylib, mlx.metallib, and fixing install names"
             )
         else()
