@@ -359,6 +359,13 @@ set_target_properties(xune_audio PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON
 )
 
+if(APPLE)
+    set_target_properties(xune_audio PROPERTIES
+        MACOSX_RPATH OFF
+        INSTALL_NAME_DIR "@loader_path"
+    )
+endif()
+
 # Enable exports macro
 target_compile_definitions(xune_audio PRIVATE XUNE_AUDIO_EXPORTS)
 
@@ -408,6 +415,42 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         COMMAND ${CMAKE_COMMAND} -E create_symlink "$<TARGET_FILE_NAME:xune_audio>" "${RUNTIME_DIR}/libxune_audio$<IF:$<PLATFORM_ID:Darwin>,.dylib,.so>"
         COMMENT "Copying xune_audio library to ${RUNTIME_DIR}/"
     )
+
+    # macOS: bundle libmlx and fix install names for hardened runtime compatibility
+    if(APPLE)
+        get_target_property(MLX_LIB_PATH mlx IMPORTED_LOCATION)
+        if(NOT MLX_LIB_PATH)
+            get_target_property(MLX_LIB_PATH mlx IMPORTED_LOCATION_RELEASE)
+        endif()
+        if(NOT MLX_LIB_PATH)
+            get_target_property(MLX_LIB_PATH mlx IMPORTED_LOCATION_NOCONFIG)
+        endif()
+        if(MLX_LIB_PATH)
+            get_filename_component(MLX_LIB_DIR "${MLX_LIB_PATH}" DIRECTORY)
+            add_custom_command(TARGET xune_audio POST_BUILD
+                # Bundle libmlx.dylib and mlx.metallib (Metal shaders)
+                COMMAND ${CMAKE_COMMAND} -E copy "${MLX_LIB_PATH}" "${RUNTIME_DIR}/libmlx.dylib"
+                COMMAND ${CMAKE_COMMAND} -E copy "${MLX_LIB_DIR}/mlx.metallib" "${RUNTIME_DIR}/mlx.metallib"
+                # Fix libmlx install name
+                COMMAND install_name_tool -id "@loader_path/libmlx.dylib" "${RUNTIME_DIR}/libmlx.dylib"
+                # Fix xune_audio's reference to libmlx
+                COMMAND install_name_tool -change "@rpath/libmlx.dylib" "@loader_path/libmlx.dylib"
+                    "$<TARGET_FILE:xune_audio>"
+                COMMAND install_name_tool -change "@rpath/libmlx.dylib" "@loader_path/libmlx.dylib"
+                    "${RUNTIME_DIR}/$<TARGET_FILE_NAME:xune_audio>"
+                COMMAND install_name_tool -change "@rpath/libmlx.dylib" "@loader_path/libmlx.dylib"
+                    "${RUNTIME_DIR}/libxune_audio.dylib"
+                # Fix xune_audio's own install name in the copied files
+                COMMAND install_name_tool -id "@loader_path/libxune_audio.1.dylib"
+                    "${RUNTIME_DIR}/$<TARGET_FILE_NAME:xune_audio>"
+                COMMAND install_name_tool -id "@loader_path/libxune_audio.1.dylib"
+                    "${RUNTIME_DIR}/libxune_audio.dylib"
+                COMMENT "Bundling libmlx.dylib, mlx.metallib, and fixing install names"
+            )
+        else()
+            message(WARNING "Could not determine MLX library path for bundling")
+        endif()
+    endif()
 
     # Copy ONNX Runtime shared library to .NET runtime directory (non-macOS only)
     if(NOT APPLE)
