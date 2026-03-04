@@ -484,6 +484,7 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         get_filename_component(FFTW3F_FILENAME "${FFTW3F_REALPATH}" NAME)
         add_custom_command(TARGET xune_audio POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy "${FFTW3F_REALPATH}" "${RUNTIME_DIR}/${FFTW3F_FILENAME}"
+            COMMAND ${CMAKE_COMMAND} -E create_symlink "${FFTW3F_FILENAME}" "${RUNTIME_DIR}/libfftw3f.so.3"
             COMMAND ${CMAKE_COMMAND} -E create_symlink "${FFTW3F_FILENAME}" "${RUNTIME_DIR}/libfftw3f.so"
             COMMENT "Bundling FFTW3F to ${RUNTIME_DIR}/"
         )
