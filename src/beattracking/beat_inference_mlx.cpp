@@ -266,7 +266,7 @@ BeatInference& BeatInference::operator=(BeatInference&&) noexcept = default;
 bool BeatInference::LoadModel(const std::string& model_path) {
     std::lock_guard<std::mutex> lock(xune::mlx_gpu_mutex());
     try {
-        mx::set_cache_limit(256 * 1024 * 1024);
+        mx::set_cache_limit(64 * 1024 * 1024);
 
         auto [weights, metadata] = mx::load_safetensors(model_path);
         impl_->weights = std::move(weights);

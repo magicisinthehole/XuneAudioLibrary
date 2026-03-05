@@ -19,7 +19,7 @@
 #include <memory>
 #include <vector>
 
-#if __APPLE__
+#ifdef XUNE_USE_MLX
 #include <mlx/memory.h>
 namespace mx = mlx::core;
 #endif
@@ -94,13 +94,21 @@ xune_beat_error_t xune_beat_session_create(const char* model_path,
 void xune_beat_session_destroy(xune_beat_session_t* session) {
     if (!session) return;
     delete session;
-#if __APPLE__
+#ifdef XUNE_USE_MLX
     mx::clear_cache();
 #endif
 }
 
 bool xune_beat_is_available(xune_beat_session_t* session) {
     return session && session->available;
+}
+
+const char* xune_beat_model_extension() {
+#ifdef XUNE_USE_MLX
+    return ".safetensors";
+#else
+    return ".onnx";
+#endif
 }
 
 // ============================================================================

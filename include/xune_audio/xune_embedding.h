@@ -89,6 +89,9 @@ XUNE_AUDIO_API void xune_embedding_destroy(
 XUNE_AUDIO_API bool xune_embedding_is_available(
     xune_embedding_session_t* session);
 
+/// Returns the expected model file extension (".safetensors" for MLX, ".onnx" for ORT).
+XUNE_AUDIO_API const char* xune_embedding_model_extension(void);
+
 /* ============================================================================
  * Phase 1: Mel Spectrogram Computation
  * ============================================================================ */

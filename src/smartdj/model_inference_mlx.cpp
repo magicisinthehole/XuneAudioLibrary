@@ -229,9 +229,10 @@ bool ModelInference::LoadModel(const std::string& model_path,
     try {
         // Limit the Metal buffer cache to prevent unbounded growth between
         // inference calls. Freed activation buffers are returned to the system
-        // rather than held in the pool. 256 MB is enough to cache common buffer
-        // sizes for reuse without hoarding memory.
-        mx::set_cache_limit(256 * 1024 * 1024);
+        // rather than held in the pool. 64 MB keeps common buffer sizes cached
+        // without hoarding memory. With sub-batched inference (batch ≤ 64),
+        // individual buffers are small and reallocation is cheap.
+        mx::set_cache_limit(64 * 1024 * 1024);
 
         // Load SafeTensors weights
         auto [weights, metadata] = mx::load_safetensors(model_path);

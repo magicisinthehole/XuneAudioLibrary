@@ -213,7 +213,9 @@ endif()
 # SmartDJ Inference Backend (MLX on macOS, ONNX Runtime on Windows/Linux)
 # ============================================================================
 
-if(APPLE)
+option(FORCE_ONNX "Force ONNX Runtime backend even on macOS (for testing)" OFF)
+
+if(APPLE AND NOT FORCE_ONNX)
     # MLX backend (Metal GPU on Apple Silicon)
     message(STATUS "")
     message(STATUS "Configuring MLX backend (Metal GPU)...")
@@ -235,11 +237,16 @@ if(APPLE)
     set(SMARTDJ_INFERENCE_SOURCE src/smartdj/model_inference_mlx.cpp)
     set(BEAT_INFERENCE_SOURCE src/beattracking/beat_inference_mlx.cpp)
     set(SMARTDJ_INFERENCE_LIBS mlx)
+    set(XUNE_USE_MLX TRUE)
 else()
     # ONNX Runtime backend (CPU on Windows/Linux)
     set(ORT_VERSION "1.24.2")
 
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(APPLE)
+        set(ORT_PLATFORM "osx-arm64")
+        set(ORT_LIB_NAME "libonnxruntime.dylib")
+        set(ORT_LIB_PATTERN "libonnxruntime*.dylib")
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
             set(ORT_PLATFORM "linux-aarch64")
         else()
@@ -373,6 +380,9 @@ endif()
 
 # Enable exports macro
 target_compile_definitions(xune_audio PRIVATE XUNE_AUDIO_EXPORTS)
+if(XUNE_USE_MLX)
+    target_compile_definitions(xune_audio PRIVATE XUNE_USE_MLX)
+endif()
 
 # Include directories
 target_include_directories(xune_audio
@@ -422,7 +432,7 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
     )
 
     # macOS: bundle libmlx and fix install names for hardened runtime compatibility
-    if(APPLE)
+    if(APPLE AND NOT FORCE_ONNX)
         get_target_property(MLX_LIB_PATH mlx IMPORTED_LOCATION)
         if(NOT MLX_LIB_PATH)
             get_target_property(MLX_LIB_PATH mlx IMPORTED_LOCATION_RELEASE)
@@ -461,8 +471,8 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         endif()
     endif()
 
-    # Copy ONNX Runtime shared library to .NET runtime directory (non-macOS only)
-    if(NOT APPLE)
+    # Copy ONNX Runtime shared library to .NET runtime directory
+    if(NOT APPLE OR FORCE_ONNX)
         add_custom_command(TARGET xune_audio POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}" "${RUNTIME_DIR}/"
             COMMENT "Copying ONNX Runtime library to ${RUNTIME_DIR}/"
