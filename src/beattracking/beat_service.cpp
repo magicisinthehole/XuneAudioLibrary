@@ -19,6 +19,11 @@
 #include <memory>
 #include <vector>
 
+#if __APPLE__
+#include <mlx/memory.h>
+namespace mx = mlx::core;
+#endif
+
 struct xune_beat_session {
     xune::beattracking::BeatMelSpectrogram mel;
     xune::beattracking::BeatInference model;
@@ -87,7 +92,11 @@ xune_beat_error_t xune_beat_session_create(const char* model_path,
 }
 
 void xune_beat_session_destroy(xune_beat_session_t* session) {
+    if (!session) return;
     delete session;
+#if __APPLE__
+    mx::clear_cache();
+#endif
 }
 
 bool xune_beat_is_available(xune_beat_session_t* session) {

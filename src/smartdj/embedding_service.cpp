@@ -21,6 +21,11 @@
 #include <memory>
 #include <vector>
 
+#if __APPLE__
+#include <mlx/memory.h>
+namespace mx = mlx::core;
+#endif
+
 // ============================================================================
 // Internal Types
 // ============================================================================
@@ -72,7 +77,13 @@ xune_embedding_error_t xune_embedding_create(const char* model_path,
 }
 
 void xune_embedding_destroy(xune_embedding_session_t* session) {
+    if (!session) return;
     delete session;
+#if __APPLE__
+    // Release Metal buffer cache — without this, freed weight tensors and
+    // activation buffers remain in MLX's pool indefinitely (~300MB).
+    mx::clear_cache();
+#endif
 }
 
 bool xune_embedding_is_available(xune_embedding_session_t* session) {
