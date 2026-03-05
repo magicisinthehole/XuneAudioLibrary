@@ -275,6 +275,10 @@ bool ModelInference::IsReady() const {
     return impl_ && impl_->ready;
 }
 
+const char* ModelInference::GetExecutionProvider() const {
+    return "MLX";
+}
+
 bool ModelInference::RunInferenceInto(const float* input_data, int batch_size,
                                       int n_mels, int n_frames,
                                       float* output_buffer, int output_buffer_size) {

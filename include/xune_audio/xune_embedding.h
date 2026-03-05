@@ -92,6 +92,11 @@ XUNE_AUDIO_API bool xune_embedding_is_available(
 /// Returns the expected model file extension (".safetensors" for MLX, ".onnx" for ORT).
 XUNE_AUDIO_API const char* xune_embedding_model_extension(void);
 
+/// Returns the active execution provider ("CPU", "CUDA", "DirectML", "XNNPACK", "MLX").
+/// Only valid after xune_embedding_create() succeeds.
+XUNE_AUDIO_API const char* xune_embedding_execution_provider(
+    xune_embedding_session_t* session);
+
 /* ============================================================================
  * Phase 1: Mel Spectrogram Computation
  * ============================================================================ */

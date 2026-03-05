@@ -35,11 +35,19 @@ public:
      * Load the model from disk.
      *
      * @param model_path Path to model file (.safetensors for MLX, .onnx for ORT)
+     * @param cache_dir Optional writable cache directory for optimized model graph
      * @return true on success
      */
-    bool LoadModel(const std::string& model_path);
+    bool LoadModel(const std::string& model_path,
+                   const std::string& cache_dir = "");
 
     bool IsReady() const;
+
+    /**
+     * Returns the active execution provider name ("CPU", "CUDA", "DirectML", "MLX").
+     * Only valid after LoadModel() succeeds.
+     */
+    const char* GetExecutionProvider() const;
 
     /**
      * Run inference on a mel spectrogram chunk.

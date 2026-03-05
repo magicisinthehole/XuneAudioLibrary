@@ -263,7 +263,8 @@ BeatInference::~BeatInference() = default;
 BeatInference::BeatInference(BeatInference&&) noexcept = default;
 BeatInference& BeatInference::operator=(BeatInference&&) noexcept = default;
 
-bool BeatInference::LoadModel(const std::string& model_path) {
+bool BeatInference::LoadModel(const std::string& model_path,
+                               const std::string& /*cache_dir*/) {
     std::lock_guard<std::mutex> lock(xune::mlx_gpu_mutex());
     try {
         mx::set_cache_limit(64 * 1024 * 1024);
@@ -331,6 +332,10 @@ bool BeatInference::LoadModel(const std::string& model_path) {
 
 bool BeatInference::IsReady() const {
     return impl_ && impl_->ready;
+}
+
+const char* BeatInference::GetExecutionProvider() const {
+    return "MLX";
 }
 
 bool BeatInference::RunInference(const float* mel_data, int batch_size, int n_frames,

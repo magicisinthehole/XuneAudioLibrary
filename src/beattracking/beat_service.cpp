@@ -73,6 +73,7 @@ extern "C" {
 // ============================================================================
 
 xune_beat_error_t xune_beat_session_create(const char* model_path,
+                                            const char* cache_dir,
                                             xune_beat_session_t** out_session) {
     if (!model_path || !out_session) {
         return XUNE_BEAT_ERROR_INVALID_ARGS;
@@ -80,7 +81,8 @@ xune_beat_error_t xune_beat_session_create(const char* model_path,
 
     auto session = std::make_unique<xune_beat_session>();
 
-    if (!session->model.LoadModel(model_path)) {
+    std::string cache_str = cache_dir ? cache_dir : "";
+    if (!session->model.LoadModel(model_path, cache_str)) {
         fprintf(stderr, "[xune_beat] Failed to load model: %s\n", model_path);
         *out_session = nullptr;
         return XUNE_BEAT_ERROR_MODEL_LOAD;
@@ -109,6 +111,11 @@ const char* xune_beat_model_extension() {
 #else
     return ".onnx";
 #endif
+}
+
+const char* xune_beat_execution_provider(xune_beat_session_t* session) {
+    if (!session) return "Unknown";
+    return session->model.GetExecutionProvider();
 }
 
 // ============================================================================

@@ -239,54 +239,90 @@ if(APPLE AND NOT FORCE_ONNX)
     set(SMARTDJ_INFERENCE_LIBS mlx)
     set(XUNE_USE_MLX TRUE)
 else()
-    # ONNX Runtime backend (CPU on Windows/Linux)
+    # ONNX Runtime backend (GPU-accelerated on Windows/Linux)
     set(ORT_VERSION "1.24.2")
 
-    if(APPLE)
-        set(ORT_PLATFORM "osx-arm64")
-        set(ORT_LIB_NAME "libonnxruntime.dylib")
-        set(ORT_LIB_PATTERN "libonnxruntime*.dylib")
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-            set(ORT_PLATFORM "linux-aarch64")
-        else()
-            set(ORT_PLATFORM "linux-x64")
-        endif()
+    # ORT_LOCAL_DIR: use a locally built ORT (e.g. aarch64 with XNNPACK from Docker)
+    if(DEFINED ORT_LOCAL_DIR AND EXISTS "${ORT_LOCAL_DIR}/lib")
+        message(STATUS "")
+        message(STATUS "Using local ONNX Runtime from ${ORT_LOCAL_DIR}")
+
         set(ORT_LIB_NAME "libonnxruntime.so")
-        set(ORT_LIB_PATTERN "libonnxruntime.so*")
-    elseif(WIN32)
-        if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64")
-            set(ORT_PLATFORM "win-arm64")
-        else()
-            set(ORT_PLATFORM "win-x64")
-        endif()
-        set(ORT_LIB_NAME "onnxruntime.dll")
-        set(ORT_LIB_PATTERN "onnxruntime*.dll")
-    else()
-        message(FATAL_ERROR "Unsupported platform for ONNX Runtime: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
-    endif()
-
-    message(STATUS "")
-    message(STATUS "Fetching ONNX Runtime ${ORT_VERSION} (${ORT_PLATFORM})...")
-
-    FetchContent_Declare(
-        onnxruntime
-        URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-${ORT_PLATFORM}-${ORT_VERSION}.tgz"
-    )
-    FetchContent_MakeAvailable(onnxruntime)
-
-    add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
-    set_target_properties(onnxruntime::onnxruntime PROPERTIES
-        IMPORTED_LOCATION "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}"
-        INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/include"
-    )
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
         set_target_properties(onnxruntime::onnxruntime PROPERTIES
+            IMPORTED_LOCATION "${ORT_LOCAL_DIR}/lib/${ORT_LIB_NAME}"
+            INTERFACE_INCLUDE_DIRECTORIES "${ORT_LOCAL_DIR}/include"
             IMPORTED_SONAME "${ORT_LIB_NAME}"
         )
-    endif()
+        # Store source dir for post-build copy logic
+        set(onnxruntime_SOURCE_DIR "${ORT_LOCAL_DIR}")
+        message(STATUS "✓ ONNX Runtime (local): ${ORT_LOCAL_DIR}")
+    else()
+        if(APPLE)
+            set(ORT_PLATFORM "osx-arm64")
+            set(ORT_LIB_NAME "libonnxruntime.dylib")
+        elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+                set(ORT_PLATFORM "linux-aarch64")
+            else()
+                # GPU tarball includes CUDA EP plugin .so
+                set(ORT_PLATFORM "linux-x64-gpu")
+            endif()
+            set(ORT_LIB_NAME "libonnxruntime.so")
+        elseif(WIN32)
+            # DirectML NuGet includes DML statically linked into onnxruntime.dll
+            if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64")
+                set(ORT_WIN_RID "win-arm64")
+            else()
+                set(ORT_WIN_RID "win-x64")
+            endif()
+            set(ORT_LIB_NAME "onnxruntime.dll")
+        else()
+            message(FATAL_ERROR "Unsupported platform for ONNX Runtime: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
+        endif()
 
-    message(STATUS "✓ ONNX Runtime: ${onnxruntime_SOURCE_DIR}")
+        message(STATUS "")
+
+        if(WIN32)
+            # Fetch DirectML NuGet package (contains DML-enabled onnxruntime.dll for both x64 and arm64)
+            message(STATUS "Fetching ONNX Runtime DirectML ${ORT_VERSION}...")
+            FetchContent_Declare(
+                onnxruntime
+                URL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/${ORT_VERSION}"
+                DOWNLOAD_NAME "onnxruntime-dml-${ORT_VERSION}.zip"
+            )
+            FetchContent_MakeAvailable(onnxruntime)
+
+            # NuGet layout: runtimes/{rid}/native/onnxruntime.dll, build/native/include/
+            set(ORT_NATIVE_DIR "${onnxruntime_SOURCE_DIR}/runtimes/${ORT_WIN_RID}/native")
+            add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
+            set_target_properties(onnxruntime::onnxruntime PROPERTIES
+                IMPORTED_LOCATION "${ORT_NATIVE_DIR}/${ORT_LIB_NAME}"
+                IMPORTED_IMPLIB "${ORT_NATIVE_DIR}/onnxruntime.lib"
+                INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/build/native/include"
+            )
+            message(STATUS "✓ ONNX Runtime DirectML: ${onnxruntime_SOURCE_DIR}")
+        else()
+            message(STATUS "Fetching ONNX Runtime ${ORT_VERSION} (${ORT_PLATFORM})...")
+            FetchContent_Declare(
+                onnxruntime
+                URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-${ORT_PLATFORM}-${ORT_VERSION}.tgz"
+            )
+            FetchContent_MakeAvailable(onnxruntime)
+
+            add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
+            set_target_properties(onnxruntime::onnxruntime PROPERTIES
+                IMPORTED_LOCATION "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}"
+                INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/include"
+            )
+            if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                set_target_properties(onnxruntime::onnxruntime PROPERTIES
+                    IMPORTED_SONAME "${ORT_LIB_NAME}"
+                )
+            endif()
+            message(STATUS "✓ ONNX Runtime: ${onnxruntime_SOURCE_DIR}")
+        endif()
+    endif()
 
     set(SMARTDJ_INFERENCE_SOURCE src/smartdj/model_inference_ort.cpp)
     set(BEAT_INFERENCE_SOURCE src/beattracking/beat_inference_ort.cpp)
@@ -471,20 +507,41 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         endif()
     endif()
 
-    # Copy ONNX Runtime shared library to .NET runtime directory
+    # Copy ONNX Runtime shared libraries to .NET runtime directory
     if(NOT APPLE OR FORCE_ONNX)
-        add_custom_command(TARGET xune_audio POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}" "${RUNTIME_DIR}/"
-            COMMENT "Copying ONNX Runtime library to ${RUNTIME_DIR}/"
-        )
-        # On Linux, also copy the versioned .so (e.g. libonnxruntime.so.1.22.0)
-        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-            file(GLOB ORT_VERSIONED_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.*")
-            foreach(ORT_LIB ${ORT_VERSIONED_LIBS})
+        if(WIN32)
+            # DirectML NuGet: copy from runtimes/{rid}/native/
+            set(ORT_COPY_DIR "${onnxruntime_SOURCE_DIR}/runtimes/${ORT_WIN_RID}/native")
+            file(GLOB ORT_WIN_LIBS "${ORT_COPY_DIR}/*.dll")
+            foreach(ORT_LIB ${ORT_WIN_LIBS})
                 add_custom_command(TARGET xune_audio POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy "${ORT_LIB}" "${RUNTIME_DIR}/"
                 )
             endforeach()
+            add_custom_command(TARGET xune_audio POST_BUILD
+                COMMENT "Copying ONNX Runtime DirectML libraries to ${RUNTIME_DIR}/"
+            )
+        else()
+            add_custom_command(TARGET xune_audio POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}" "${RUNTIME_DIR}/"
+                COMMENT "Copying ONNX Runtime library to ${RUNTIME_DIR}/"
+            )
+            # Copy versioned .so and EP plugin libraries
+            if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                file(GLOB ORT_VERSIONED_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.*")
+                foreach(ORT_LIB ${ORT_VERSIONED_LIBS})
+                    add_custom_command(TARGET xune_audio POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy "${ORT_LIB}" "${RUNTIME_DIR}/"
+                    )
+                endforeach()
+                # Copy EP plugin .so files (CUDA, TensorRT, providers_shared)
+                file(GLOB ORT_EP_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime_providers_*.so")
+                foreach(ORT_LIB ${ORT_EP_LIBS})
+                    add_custom_command(TARGET xune_audio POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy "${ORT_LIB}" "${RUNTIME_DIR}/"
+                    )
+                endforeach()
+            endif()
         endif()
     endif()
 
@@ -528,7 +585,7 @@ if(BUILD_TESTS)
 
     # Reference data paths (exported by SmartDJ/onnx_export/export_reference_data.py)
     set(REFERENCE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/reference_data")
-    if(APPLE)
+    if(XUNE_USE_MLX)
         set(MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/myna_hybrid.safetensors")
     else()
         set(MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/myna_hybrid.onnx")
@@ -549,19 +606,23 @@ if(BUILD_TESTS)
     target_include_directories(smartdj_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
     target_compile_definitions(smartdj_test PRIVATE
         XUNE_AUDIO_EXPORTS
         REFERENCE_DATA_DIR="${REFERENCE_DATA_DIR}"
         MODEL_PATH="${MODEL_PATH}"
     )
+    if(XUNE_USE_MLX)
+        target_compile_definitions(smartdj_test PRIVATE XUNE_USE_MLX)
+    endif()
 
     include(GoogleTest)
     gtest_discover_tests(smartdj_test)
 
     # Beat tracking test
     set(BEAT_REFERENCE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_reference_data")
-    if(APPLE)
+    if(XUNE_USE_MLX)
         set(BEAT_MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_this_small.safetensors")
     else()
         set(BEAT_MODEL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_this_small.onnx")
@@ -580,12 +641,16 @@ if(BUILD_TESTS)
     target_include_directories(beat_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
     target_compile_definitions(beat_test PRIVATE
         XUNE_AUDIO_EXPORTS
         BEAT_REFERENCE_DATA_DIR="${BEAT_REFERENCE_DATA_DIR}"
         BEAT_MODEL_PATH="${BEAT_MODEL_PATH}"
     )
+    if(XUNE_USE_MLX)
+        target_compile_definitions(beat_test PRIVATE XUNE_USE_MLX)
+    endif()
     gtest_discover_tests(beat_test)
 
     # Tool: generate reference embeddings using the C++ pipeline (for INT8 testing)

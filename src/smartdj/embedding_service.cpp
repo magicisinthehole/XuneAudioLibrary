@@ -98,6 +98,11 @@ const char* xune_embedding_model_extension() {
 #endif
 }
 
+const char* xune_embedding_execution_provider(xune_embedding_session_t* session) {
+    if (!session) return "Unknown";
+    return session->model.GetExecutionProvider();
+}
+
 // ============================================================================
 // Phase 1: Mel Spectrogram Computation
 // ============================================================================

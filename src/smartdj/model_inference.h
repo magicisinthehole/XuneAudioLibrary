@@ -49,6 +49,12 @@ public:
     bool IsReady() const;
 
     /**
+     * Returns the active execution provider name ("CPU", "CUDA", "DirectML", "MLX").
+     * Only valid after LoadModel() succeeds.
+     */
+    const char* GetExecutionProvider() const;
+
+    /**
      * Run inference on a batch of mel spectrogram chunks, writing directly
      * into a caller-provided buffer. Eliminates intermediate std::vector copy.
      *

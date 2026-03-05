@@ -15,7 +15,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
+#include <filesystem>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -23,8 +23,8 @@
 #include "smartdj/mel_spectrogram.h"
 #include "smartdj/model_inference.h"
 #include "xune_audio/xune_embedding.h"
+#include "test_utils.h"
 
-// Paths injected by CMake
 #ifndef REFERENCE_DATA_DIR
 #error "REFERENCE_DATA_DIR must be defined by CMake"
 #endif
@@ -32,33 +32,10 @@
 #error "MODEL_PATH must be defined by CMake"
 #endif
 
+using xune::test::LoadFloatBin;
+using xune::test::CosineSimilarity;
+
 namespace {
-
-// Helper: load a binary file of float32 values
-std::vector<float> LoadFloatBin(const std::string& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        return {};
-    }
-    auto size = file.tellg();
-    file.seekg(0, std::ios::beg);
-
-    std::vector<float> data(static_cast<size_t>(size) / sizeof(float));
-    file.read(reinterpret_cast<char*>(data.data()), size);
-    return data;
-}
-
-// Cosine similarity between two float vectors
-float CosineSimilarity(const float* a, const float* b, size_t n) {
-    double dot = 0.0, norm_a = 0.0, norm_b = 0.0;
-    for (size_t i = 0; i < n; ++i) {
-        dot += static_cast<double>(a[i]) * b[i];
-        norm_a += static_cast<double>(a[i]) * a[i];
-        norm_b += static_cast<double>(b[i]) * b[i];
-    }
-    if (norm_a == 0.0 || norm_b == 0.0) return 0.0f;
-    return static_cast<float>(dot / (std::sqrt(norm_a) * std::sqrt(norm_b)));
-}
 
 const std::string kRefDir = REFERENCE_DATA_DIR;
 const std::string kModelPath = MODEL_PATH;
@@ -337,6 +314,33 @@ TEST_F(EmbeddingPipelineTest, SessionLifecycle) {
     EXPECT_TRUE(xune_embedding_is_available(session));
 
     xune_embedding_destroy(session);
+}
+
+TEST_F(EmbeddingPipelineTest, SessionWithCacheDirWritesOptimizedModel) {
+    std::string cache_dir = std::string(REFERENCE_DATA_DIR) + "/opt_cache";
+    std::filesystem::create_directories(cache_dir);
+    std::string opt_path = cache_dir + "/myna_hybrid_opt.onnx";
+    std::filesystem::remove(opt_path);
+
+    xune_embedding_session_t* session = nullptr;
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), cache_dir.c_str(), &session),
+              XUNE_EMBEDDING_OK);
+    ASSERT_NE(session, nullptr);
+
+#ifndef XUNE_USE_MLX
+    EXPECT_TRUE(std::filesystem::exists(opt_path))
+        << "Expected optimized model at: " << opt_path;
+#endif
+
+    xune_embedding_destroy(session);
+
+    // Second load reuses the cached optimized model (ORT only)
+    xune_embedding_session_t* session2 = nullptr;
+    ASSERT_EQ(xune_embedding_create(kModelPath.c_str(), cache_dir.c_str(), &session2),
+              XUNE_EMBEDDING_OK);
+    xune_embedding_destroy(session2);
+
+    std::filesystem::remove_all(cache_dir);
 }
 
 TEST_F(EmbeddingPipelineTest, SessionCreateWithBadPathFails) {

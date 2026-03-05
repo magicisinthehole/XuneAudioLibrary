@@ -15,7 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <fstream>
+#include <filesystem>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -24,6 +24,7 @@
 #include "beattracking/beat_inference.h"
 #include "beattracking/beat_postprocess.h"
 #include "xune_audio/xune_beat.h"
+#include "test_utils.h"
 
 #ifndef BEAT_REFERENCE_DATA_DIR
 #error "BEAT_REFERENCE_DATA_DIR must be defined by CMake"
@@ -32,28 +33,10 @@
 #error "BEAT_MODEL_PATH must be defined by CMake"
 #endif
 
+using xune::test::LoadFloatBin;
+using xune::test::CosineSimilarity;
+
 namespace {
-
-std::vector<float> LoadFloatBin(const std::string& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) return {};
-    auto size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    std::vector<float> data(static_cast<size_t>(size) / sizeof(float));
-    file.read(reinterpret_cast<char*>(data.data()), size);
-    return data;
-}
-
-float CosineSimilarity(const float* a, const float* b, size_t n) {
-    double dot = 0.0, norm_a = 0.0, norm_b = 0.0;
-    for (size_t i = 0; i < n; ++i) {
-        dot += static_cast<double>(a[i]) * b[i];
-        norm_a += static_cast<double>(a[i]) * a[i];
-        norm_b += static_cast<double>(b[i]) * b[i];
-    }
-    if (norm_a == 0.0 || norm_b == 0.0) return 0.0f;
-    return static_cast<float>(dot / (std::sqrt(norm_a) * std::sqrt(norm_b)));
-}
 
 const std::string kBeatRefDir = BEAT_REFERENCE_DATA_DIR;
 const std::string kBeatModelPath = BEAT_MODEL_PATH;
@@ -303,7 +286,7 @@ protected:
 
 TEST_F(BeatPipelineTest, SessionLifecycle) {
     xune_beat_session_t* session = nullptr;
-    auto err = xune_beat_session_create(kBeatModelPath.c_str(), &session);
+    auto err = xune_beat_session_create(kBeatModelPath.c_str(), nullptr, &session);
     ASSERT_EQ(err, XUNE_BEAT_OK);
     ASSERT_NE(session, nullptr);
     EXPECT_TRUE(xune_beat_is_available(session));
@@ -311,9 +294,36 @@ TEST_F(BeatPipelineTest, SessionLifecycle) {
     xune_beat_session_destroy(session);
 }
 
+TEST_F(BeatPipelineTest, SessionWithCacheDirWritesOptimizedModel) {
+    std::string cache_dir = std::string(BEAT_REFERENCE_DATA_DIR) + "/opt_cache";
+    std::filesystem::create_directories(cache_dir);
+    std::string opt_path = cache_dir + "/beat_this_small_opt.onnx";
+    std::filesystem::remove(opt_path);
+
+    xune_beat_session_t* session = nullptr;
+    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), cache_dir.c_str(), &session),
+              XUNE_BEAT_OK);
+    ASSERT_NE(session, nullptr);
+
+#ifndef XUNE_USE_MLX
+    EXPECT_TRUE(std::filesystem::exists(opt_path))
+        << "Expected optimized model at: " << opt_path;
+#endif
+
+    xune_beat_session_destroy(session);
+
+    // Second load reuses the cached optimized model (ORT only)
+    xune_beat_session_t* session2 = nullptr;
+    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), cache_dir.c_str(), &session2),
+              XUNE_BEAT_OK);
+    xune_beat_session_destroy(session2);
+
+    std::filesystem::remove_all(cache_dir);
+}
+
 TEST_F(BeatPipelineTest, SessionCreateWithBadPathFails) {
     xune_beat_session_t* session = nullptr;
-    auto err = xune_beat_session_create("/nonexistent/model.onnx", &session);
+    auto err = xune_beat_session_create("/nonexistent/model.onnx", nullptr, &session);
     EXPECT_NE(err, XUNE_BEAT_OK);
 }
 
@@ -327,7 +337,7 @@ TEST_F(BeatPipelineTest, FreeNullIsSafe) {
 
 TEST_F(BeatPipelineTest, NullArgsReturnError) {
     xune_beat_session_t* session = nullptr;
-    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), &session), XUNE_BEAT_OK);
+    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), nullptr, &session), XUNE_BEAT_OK);
 
     float* beats = nullptr;
     float* downbeats = nullptr;
@@ -349,7 +359,7 @@ TEST_F(BeatPipelineTest, NullArgsReturnError) {
 
 TEST_F(BeatPipelineTest, EndToEndProducesBeats) {
     xune_beat_session_t* session = nullptr;
-    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), &session), XUNE_BEAT_OK);
+    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), nullptr, &session), XUNE_BEAT_OK);
 
     float* beats = nullptr;
     float* downbeats = nullptr;
@@ -418,7 +428,7 @@ TEST_F(BeatPipelineTest, EndToEndProducesBeats) {
 
 TEST_F(BeatPipelineTest, DownbeatsAreSubsetOfBeats) {
     xune_beat_session_t* session = nullptr;
-    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), &session), XUNE_BEAT_OK);
+    ASSERT_EQ(xune_beat_session_create(kBeatModelPath.c_str(), nullptr, &session), XUNE_BEAT_OK);
 
     float* beats = nullptr;
     float* downbeats = nullptr;

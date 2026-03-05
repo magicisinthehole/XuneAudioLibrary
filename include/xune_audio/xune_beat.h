@@ -7,7 +7,7 @@
  *   Phase 2: xune_beat_analyze_mel — inference + post-processing (serialize via caller)
  *
  * Usage (two-phase, recommended for batching):
- *   1. xune_beat_session_create(model_path, &session)
+ *   1. xune_beat_session_create(model_path, cache_dir, &session)
  *   2. xune_beat_compute_mel(session, pcm, n, &mel)       [concurrent]
  *   3. xune_beat_analyze_mel(session, mel, &beats, ...)    [serialized]
  *   4. xune_beat_free(beats); xune_beat_free(downbeats);
@@ -15,7 +15,7 @@
  *   6. xune_beat_session_destroy(session);
  *
  * Usage (one-shot, for simple callers):
- *   1. xune_beat_session_create(model_path, &session)
+ *   1. xune_beat_session_create(model_path, cache_dir, &session)
  *   2. xune_beat_analyze(session, pcm, n, &beats, &bc, &downbeats, &dc)
  *   3. xune_beat_free(beats); xune_beat_free(downbeats);
  *   4. xune_beat_session_destroy(session);
@@ -62,11 +62,13 @@ typedef struct xune_beat_batch_result xune_beat_batch_result_t;
  * Loads the Beat This! model and precomputes the mel filterbank.
  *
  * @param model_path Path to model file (.safetensors for MLX, .onnx for ORT)
+ * @param cache_dir Optional writable cache directory (NULL to skip). Used by ORT for optimized graph.
  * @param out_session Receives the created session handle
  * @return XUNE_BEAT_OK on success
  */
 XUNE_AUDIO_API xune_beat_error_t xune_beat_session_create(
     const char* model_path,
+    const char* cache_dir,
     xune_beat_session_t** out_session);
 
 /**
@@ -86,6 +88,11 @@ XUNE_AUDIO_API bool xune_beat_is_available(
 
 /// Returns the expected model file extension (".safetensors" for MLX, ".onnx" for ORT).
 XUNE_AUDIO_API const char* xune_beat_model_extension(void);
+
+/// Returns the active execution provider ("CPU", "CUDA", "DirectML", "XNNPACK", "MLX").
+/// Only valid after xune_beat_session_create() succeeds.
+XUNE_AUDIO_API const char* xune_beat_execution_provider(
+    xune_beat_session_t* session);
 
 /* ============================================================================
  * Phase 1: Mel Spectrogram (thread-safe, concurrent)
