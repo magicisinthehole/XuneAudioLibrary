@@ -44,13 +44,29 @@ public:
         // Session options
         if (!CheckStatus(api.CreateSessionOptions(&session_options_)))
             return false;
-        if (!CheckStatus(api.SetSessionGraphOptimizationLevel(session_options_, ORT_ENABLE_ALL)))
-            return false;
 
-        // Optimized model graph cache
+        // Check for a pre-optimized model in the cache directory.
+        // If found, load it directly with minimal optimization (already done).
+        // Otherwise, load the original model with full optimization and write
+        // the result to the cache for next time.
+        std::string effective_model = model_path;
         if (!cache_dir.empty()) {
             std::string opt_path = cache_dir + "/" + opt_model_name;
-            if (!CreateSessionPath(api, opt_path, /*is_model=*/false))
+            FILE* f = fopen(opt_path.c_str(), "r");
+            if (f) {
+                fclose(f);
+                effective_model = opt_path;
+                if (!CheckStatus(api.SetSessionGraphOptimizationLevel(session_options_, ORT_ENABLE_BASIC)))
+                    return false;
+                fprintf(stderr, "[%s] Loading pre-optimized model from cache\n", log_tag_);
+            } else {
+                if (!CheckStatus(api.SetSessionGraphOptimizationLevel(session_options_, ORT_ENABLE_ALL)))
+                    return false;
+                if (!CreateSessionPath(api, opt_path, /*is_model=*/false))
+                    return false;
+            }
+        } else {
+            if (!CheckStatus(api.SetSessionGraphOptimizationLevel(session_options_, ORT_ENABLE_ALL)))
                 return false;
         }
 
@@ -68,7 +84,7 @@ public:
         }
 
         // Create session
-        if (!CreateSessionPath(api, model_path, /*is_model=*/true))
+        if (!CreateSessionPath(api, effective_model, /*is_model=*/true))
             return false;
 
         ready_ = true;
