@@ -78,6 +78,12 @@ XUNE_AUDIO_API xune_embedding_error_t xune_embedding_create(
 XUNE_AUDIO_API void xune_embedding_destroy(
     xune_embedding_session_t* session);
 
+/// @brief Signal cancellation to abort in-flight compute_mel calls.
+/// Thread-safe. After calling, any running or future compute_mel returns
+/// XUNE_EMBEDDING_ERROR_MEL. Call xune_embedding_destroy to clean up.
+XUNE_AUDIO_API void xune_embedding_cancel(
+    xune_embedding_session_t* session);
+
 /**
  * @brief Check if the embedding service is available.
  *

@@ -388,6 +388,9 @@ bool BeatInference::RunInference(const float* mel_data, int batch_size, int n_fr
 
         // ==== TRANSFORMER (6 layers) ====
         for (int i = 0; i < kDepth; i++) {
+            if (cancel_ && cancel_->load(std::memory_order_relaxed)) {
+                return false;
+            }
             std::string attn_prefix = "transformer_blocks.layers." + std::to_string(i) + ".0";
             std::string ff_prefix = "transformer_blocks.layers." + std::to_string(i) + ".1";
 

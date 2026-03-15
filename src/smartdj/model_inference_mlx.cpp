@@ -318,6 +318,9 @@ bool ModelInference::RunInferenceInto(const float* input_data, int batch_size,
         // evaluation accumulates the full graph across all 12 layers, and peak
         // GPU memory scales with depth × batch — causing OOM at large batches.
         for (int i = 0; i < kDepth; i++) {
+            if (cancel_ && cancel_->load(std::memory_order_relaxed)) {
+                return false;
+            }
             x = impl_->transformer_layer(x, i);
             mx::eval(x);
         }

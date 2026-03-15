@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -70,7 +71,11 @@ public:
                           int n_mels, int n_frames,
                           float* output_buffer, int output_buffer_size);
 
+    /// Set a cancellation flag that is checked between transformer layers.
+    void SetCancelFlag(const std::atomic<bool>* cancel) { cancel_ = cancel; }
+
 private:
+    const std::atomic<bool>* cancel_ = nullptr;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

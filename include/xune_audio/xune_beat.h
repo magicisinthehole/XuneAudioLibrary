@@ -78,6 +78,10 @@ XUNE_AUDIO_API xune_beat_error_t xune_beat_session_create(
 XUNE_AUDIO_API void xune_beat_session_destroy(
     xune_beat_session_t* session);
 
+/// @brief Signal cancellation to abort in-flight compute_mel calls.
+XUNE_AUDIO_API void xune_beat_session_cancel(
+    xune_beat_session_t* session);
+
 /**
  * @brief Check if the beat tracking service is available.
  * @param session Session handle

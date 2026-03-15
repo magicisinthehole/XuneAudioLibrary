@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <vector>
 #include <memory>
@@ -66,10 +67,12 @@ public:
     /**
      * Compute mel spectrogram with caller-supplied scratch buffer.
      * Avoids heap alloc/free churn that causes native memory fragmentation.
+     * @param cancel Optional cancellation flag — checked every frame in the FFT loop.
      */
     bool Compute(const float* pcm, int num_samples,
                  std::vector<float>& out_mel, int& out_n_frames,
-                 ScratchBuffer& scratch) const;
+                 ScratchBuffer& scratch,
+                 const std::atomic<bool>* cancel = nullptr) const;
 
 private:
     struct Impl;

@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <vector>
 #include <memory>
@@ -67,10 +68,12 @@ public:
 
     /**
      * Compute with caller-supplied scratch buffer to avoid heap churn.
+     * @param cancel Optional cancellation flag — checked every frame.
      */
     bool Compute(const float* pcm, int num_samples,
                  std::vector<float>& out_mel, int& out_n_frames,
-                 ScratchBuffer& scratch) const;
+                 ScratchBuffer& scratch,
+                 const std::atomic<bool>* cancel = nullptr) const;
 
 private:
     struct Impl;

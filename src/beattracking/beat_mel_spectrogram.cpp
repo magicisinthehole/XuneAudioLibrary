@@ -235,7 +235,8 @@ bool BeatMelSpectrogram::Compute(const float* pcm, int num_samples,
 
 bool BeatMelSpectrogram::Compute(const float* pcm, int num_samples,
                                   std::vector<float>& out_mel, int& out_n_frames,
-                                  ScratchBuffer& scratch) const {
+                                  ScratchBuffer& scratch,
+                                  const std::atomic<bool>* cancel) const {
     if (!pcm || num_samples <= 0) {
         return false;
     }
@@ -276,6 +277,10 @@ bool BeatMelSpectrogram::Compute(const float* pcm, int num_samples,
     scratch.mag_spectrum.resize(kFreqBins);
 
     for (int frame = 0; frame < out_n_frames; frame++) {
+        if (cancel && cancel->load(std::memory_order_relaxed)) {
+            return false;
+        }
+
         int start = frame * kHopLength;
 
         // Apply Hann window
