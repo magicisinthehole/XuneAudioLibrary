@@ -14,6 +14,7 @@
 #include "beat_inference.h"
 #include "beat_postprocess.h"
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -27,6 +28,7 @@ namespace mx = mlx::core;
 struct xune_beat_session {
     xune::beattracking::BeatMelSpectrogram mel;
     xune::beattracking::BeatInference model;
+    std::atomic<bool> cancelled{false};
     bool available = false;
 };
 
@@ -88,9 +90,15 @@ xune_beat_error_t xune_beat_session_create(const char* model_path,
         return XUNE_BEAT_ERROR_MODEL_LOAD;
     }
 
+    session->model.SetCancelFlag(&session->cancelled);
     session->available = true;
     *out_session = session.release();
     return XUNE_BEAT_OK;
+}
+
+void xune_beat_session_cancel(xune_beat_session_t* session) {
+    if (!session) return;
+    session->cancelled.store(true, std::memory_order_relaxed);
 }
 
 void xune_beat_session_destroy(xune_beat_session_t* session) {
@@ -133,12 +141,17 @@ xune_beat_error_t xune_beat_compute_mel(xune_beat_session_t* session,
         return XUNE_BEAT_ERROR_NOT_AVAILABLE;
     }
 
+    if (session->cancelled.load(std::memory_order_relaxed)) {
+        return XUNE_BEAT_ERROR_MEL;
+    }
+
     // thread_local scratch buffers — same pattern as embedding mel computation
     thread_local xune::beattracking::BeatMelSpectrogram::ScratchBuffer scratch;
 
     auto mel = std::make_unique<xune_beat_mel>();
 
-    if (!session->mel.Compute(pcm_mono_22k, num_samples, mel->data, mel->n_frames, scratch)) {
+    if (!session->mel.Compute(pcm_mono_22k, num_samples, mel->data, mel->n_frames, scratch,
+                               &session->cancelled)) {
         *out_mel = nullptr;
         return XUNE_BEAT_ERROR_MEL;
     }
@@ -178,6 +191,10 @@ xune_beat_error_t xune_beat_analyze_mel(xune_beat_session_t* session,
 
     if (mel->n_frames <= 0 || mel->data.empty()) {
         return XUNE_BEAT_ERROR_INVALID_ARGS;
+    }
+
+    if (session->cancelled.load(std::memory_order_relaxed)) {
+        return XUNE_BEAT_ERROR_INFERENCE;
     }
 
     xune::beattracking::BeatResult result;

@@ -15,6 +15,7 @@
 #include "mel_spectrogram.h"
 #include "model_inference.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -33,6 +34,7 @@ namespace mx = mlx::core;
 struct xune_embedding_session {
     xune::smartdj::MelSpectrogram mel;
     xune::smartdj::ModelInference model;
+    std::atomic<bool> cancelled{false};
     bool available = false;
 };
 
@@ -71,9 +73,15 @@ xune_embedding_error_t xune_embedding_create(const char* model_path,
         return XUNE_EMBEDDING_ERROR_MODEL_LOAD;
     }
 
+    session->model.SetCancelFlag(&session->cancelled);
     session->available = true;
     *out_session = session.release();
     return XUNE_EMBEDDING_OK;
+}
+
+void xune_embedding_cancel(xune_embedding_session_t* session) {
+    if (!session) return;
+    session->cancelled.store(true, std::memory_order_relaxed);
 }
 
 void xune_embedding_destroy(xune_embedding_session_t* session) {
@@ -119,6 +127,10 @@ xune_embedding_error_t xune_embedding_compute_mel(xune_embedding_session_t* sess
         return XUNE_EMBEDDING_ERROR_NOT_AVAILABLE;
     }
 
+    if (session->cancelled.load(std::memory_order_relaxed)) {
+        return XUNE_EMBEDDING_ERROR_MEL;
+    }
+
     // Thread-local scratch buffers survive across tracks on the same thread,
     // eliminating ~15MB alloc/free churn per track that causes native heap
     // fragmentation on macOS (magazine allocator retains freed pages).
@@ -128,7 +140,8 @@ xune_embedding_error_t xune_embedding_compute_mel(xune_embedding_session_t* sess
     std::vector<float> mel_data;
     int n_frames = 0;
 
-    if (!session->mel.Compute(pcm_mono_16k, num_samples, mel_data, n_frames, scratch)) {
+    if (!session->mel.Compute(pcm_mono_16k, num_samples, mel_data, n_frames, scratch,
+                               &session->cancelled)) {
         return XUNE_EMBEDDING_ERROR_MEL;
     }
 
@@ -205,6 +218,10 @@ xune_embedding_error_t xune_embedding_infer_into(xune_embedding_session_t* sessi
     }
 
     const int n_mels = xune::smartdj::MelSpectrogram::kNMels;
+
+    if (session->cancelled.load(std::memory_order_relaxed)) {
+        return XUNE_EMBEDDING_ERROR_INFERENCE;
+    }
 
     if (!session->model.RunInferenceInto(mel_data, total_chunks,
                                           n_mels, kNFramesPerChunk,
