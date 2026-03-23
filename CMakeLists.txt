@@ -82,9 +82,9 @@ if(NOT EXISTS "${CHROMAPRINT_LIBRARY}")
         message(FATAL_ERROR "Failed to build Chromaprint:\n${CHROMAPRINT_BUILD_ERROR}")
     endif()
 
-    message(STATUS "✓ Chromaprint library built successfully")
+    message(STATUS "[OK] Chromaprint library built successfully")
 else()
-    message(STATUS "✓ Using existing Chromaprint library")
+    message(STATUS "[OK] Using existing Chromaprint library")
 endif()
 
 # ============================================================================
@@ -143,9 +143,9 @@ if(NOT EXISTS "${EBUR128_LIBRARY}")
         message(FATAL_ERROR "Failed to build libebur128:\n${EBUR128_BUILD_ERROR}")
     endif()
 
-    message(STATUS "✓ libebur128 built successfully")
+    message(STATUS "[OK] libebur128 built successfully")
 else()
-    message(STATUS "✓ Using existing libebur128")
+    message(STATUS "[OK] Using existing libebur128")
 endif()
 
 # macOS specific settings
@@ -232,7 +232,7 @@ if(APPLE AND NOT FORCE_ONNX)
     endif()
 
     find_package(MLX CONFIG REQUIRED HINTS "${MLX_ROOT}")
-    message(STATUS "✓ MLX: ${MLX_ROOT}")
+    message(STATUS "[OK] MLX: ${MLX_ROOT}")
 
     set(SMARTDJ_INFERENCE_SOURCE src/smartdj/model_inference_mlx.cpp)
     set(BEAT_INFERENCE_SOURCE src/beattracking/beat_inference_mlx.cpp)
@@ -256,7 +256,7 @@ else()
         )
         # Store source dir for post-build copy logic
         set(onnxruntime_SOURCE_DIR "${ORT_LOCAL_DIR}")
-        message(STATUS "✓ ONNX Runtime (local): ${ORT_LOCAL_DIR}")
+        message(STATUS "[OK] ONNX Runtime (local): ${ORT_LOCAL_DIR}")
     else()
         if(APPLE)
             set(ORT_PLATFORM "osx-arm64")
@@ -301,7 +301,7 @@ else()
                 IMPORTED_IMPLIB "${ORT_NATIVE_DIR}/onnxruntime.lib"
                 INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/build/native/include"
             )
-            message(STATUS "✓ ONNX Runtime DirectML: ${onnxruntime_SOURCE_DIR}")
+            message(STATUS "[OK] ONNX Runtime DirectML: ${onnxruntime_SOURCE_DIR}")
         else()
             message(STATUS "Fetching ONNX Runtime ${ORT_VERSION} (${ORT_PLATFORM})...")
             FetchContent_Declare(
@@ -320,7 +320,7 @@ else()
                     IMPORTED_SONAME "${ORT_LIB_NAME}"
                 )
             endif()
-            message(STATUS "✓ ONNX Runtime: ${onnxruntime_SOURCE_DIR}")
+            message(STATUS "[OK] ONNX Runtime: ${onnxruntime_SOURCE_DIR}")
         endif()
     endif()
 
