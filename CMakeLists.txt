@@ -148,6 +148,30 @@ else()
     message(STATUS "[OK] Using existing libebur128")
 endif()
 
+# ============================================================================
+# TagLib (audio metadata reading/writing)
+# ============================================================================
+
+message(STATUS "")
+message(STATUS "Fetching TagLib...")
+
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_BINDINGS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    taglib
+    GIT_REPOSITORY https://github.com/taglib/taglib.git
+    GIT_TAG v2.0.2
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(taglib)
+
+set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED} CACHE BOOL "" FORCE)
+message(STATUS "[OK] TagLib: ${taglib_SOURCE_DIR}")
+
 # macOS specific settings
 if(APPLE)
     find_library(ACCELERATE_LIBRARY Accelerate REQUIRED)
@@ -385,12 +409,19 @@ set(BEATTRACKING_SOURCES
     src/beattracking/beat_service.cpp
 )
 
+# Metadata sources (TagLib-backed tag reading/writing)
+set(METADATA_SOURCES
+    src/metadata/MetadataFile.cpp
+    src/metadata/xune_metadata.cpp
+)
+
 # Create xune_audio shared library
 add_library(xune_audio SHARED
     src/xune_version.cpp
     ${NOWPLAYING_SOURCES}
     ${SMARTDJ_SOURCES}
     ${BEATTRACKING_SOURCES}
+    ${METADATA_SOURCES}
 )
 
 # Set library properties
@@ -436,6 +467,27 @@ endif()
 
 # Link inference backend (MLX on macOS, ORT on Windows/Linux)
 target_link_libraries(xune_audio PRIVATE ${SMARTDJ_INFERENCE_LIBS})
+
+# Link TagLib (static, for metadata reading/writing)
+# TagLib 2.0 only exports INSTALL_INTERFACE includes, so we add BUILD_INTERFACE manually
+target_link_libraries(xune_audio PRIVATE tag)
+set(TAGLIB_INCLUDE_DIRS
+    "${taglib_SOURCE_DIR}/taglib"
+    "${taglib_SOURCE_DIR}/taglib/toolkit"
+    "${taglib_SOURCE_DIR}/taglib/asf"
+    "${taglib_SOURCE_DIR}/taglib/flac"
+    "${taglib_SOURCE_DIR}/taglib/mp4"
+    "${taglib_SOURCE_DIR}/taglib/mpeg"
+    "${taglib_SOURCE_DIR}/taglib/mpeg/id3v2"
+    "${taglib_SOURCE_DIR}/taglib/mpeg/id3v2/frames"
+    "${taglib_SOURCE_DIR}/taglib/ogg"
+    "${taglib_SOURCE_DIR}/taglib/ogg/flac"
+    "${taglib_SOURCE_DIR}/taglib/ogg/vorbis"
+    "${taglib_SOURCE_DIR}/taglib/riff"
+    "${taglib_SOURCE_DIR}/taglib/riff/wav"
+    "${taglib_BINARY_DIR}"
+)
+target_include_directories(xune_audio PRIVATE ${TAGLIB_INCLUDE_DIRS})
 
 # Link platform FFT (SmartDJ mel spectrogram)
 if(APPLE)
@@ -683,6 +735,7 @@ message(STATUS "  Build type:           ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:         ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Chromaprint library:  ${CHROMAPRINT_LIBRARY}")
 message(STATUS "  libebur128:           ${EBUR128_LIBRARY}")
+message(STATUS "  TagLib:               ${taglib_SOURCE_DIR}")
 if(APPLE)
 message(STATUS "  Inference backend:    MLX (Metal GPU)")
 else()
