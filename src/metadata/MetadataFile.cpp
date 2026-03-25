@@ -176,6 +176,28 @@ uint32_t MetadataFile::year() const {
     return file_ref_->tag()->year();
 }
 
+// ── ID3v2 Multi-Value Splitting ──────────────────────────────────────────────
+// MusicBrainz Picard packs multi-value ID3v2 TXXX fields as "/"-separated
+// strings (e.g. "Artist1/Artist2", "mbid1/mbid2"). Split them back out.
+
+static std::vector<std::string> split_id3v2_separator(const std::vector<std::string>& values) {
+    std::vector<std::string> result;
+    for (const auto& v : values) {
+        size_t start = 0;
+        size_t pos;
+        while ((pos = v.find('/', start)) != std::string::npos) {
+            auto token = v.substr(start, pos - start);
+            if (!token.empty())
+                result.push_back(token);
+            start = pos + 1;
+        }
+        auto tail = v.substr(start);
+        if (!tail.empty())
+            result.push_back(tail);
+    }
+    return result;
+}
+
 // ── Format-Specific Multi-Value Readers ──────────────────────────────────────
 
 std::vector<std::string> MetadataFile::read_xiph_field(const char* field_name) const {
@@ -284,7 +306,7 @@ std::vector<std::string> MetadataFile::artists() const {
     if (!result.empty()) return result;
 
     result = read_id3v2_txxx("ARTISTS");
-    if (!result.empty()) return result;
+    if (!result.empty()) return split_id3v2_separator(result);
 
     result = read_mp4_text("----:com.apple.iTunes:ARTISTS");
     if (!result.empty()) return result;
@@ -358,7 +380,7 @@ std::vector<std::string> MetadataFile::mb_artist_ids() const {
     if (!result.empty()) return result;
 
     result = read_id3v2_txxx("MusicBrainz Artist Id");
-    if (!result.empty()) return result;
+    if (!result.empty()) return split_id3v2_separator(result);
 
     result = read_mp4_text("----:com.apple.iTunes:MusicBrainz Artist Id");
     if (!result.empty()) return result;
@@ -376,7 +398,7 @@ std::vector<std::string> MetadataFile::mb_album_artist_ids() const {
     if (!result.empty()) return result;
 
     result = read_id3v2_txxx("MusicBrainz Album Artist Id");
-    if (!result.empty()) return result;
+    if (!result.empty()) return split_id3v2_separator(result);
 
     result = read_mp4_text("----:com.apple.iTunes:MusicBrainz Album Artist Id");
     if (!result.empty()) return result;
