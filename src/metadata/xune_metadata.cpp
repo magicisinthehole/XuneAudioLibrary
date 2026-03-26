@@ -308,6 +308,15 @@ const char* xune_meta_picture_mime(xune_meta_handle_t h) {
     return m->picture_cache.mime_type.c_str();
 }
 
+void xune_meta_set_picture(xune_meta_handle_t h, const uint8_t* data, int size, const char* mime) {
+    auto* m = get(h, false);
+    if (!m || !data || size <= 0 || !mime) return;
+    std::string mime_str(mime);
+    m->file.set_picture(data, size, mime_str);
+    m->picture_cache = {std::vector<uint8_t>(data, data + size), std::move(mime_str)};
+    m->picture_loaded = true;
+}
+
 // ── Release Date ─────────────────────────────────────────────────────────────
 
 const char* xune_meta_release_date(xune_meta_handle_t h) {

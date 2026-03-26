@@ -719,6 +719,21 @@ if(BUILD_TESTS)
     )
     target_compile_definitions(generate_reference_embeddings PRIVATE XUNE_AUDIO_EXPORTS)
 
+    # Metadata tests (format reading + picture writing)
+    set(METADATA_TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")
+
+    add_executable(metadata_format_test tests/metadata_format_test.cpp)
+    target_link_libraries(metadata_format_test PRIVATE xune_audio)
+    target_include_directories(metadata_format_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_definitions(metadata_format_test PRIVATE TEST_DATA_DIR="${METADATA_TEST_DATA_DIR}")
+    add_test(NAME metadata_format_test COMMAND metadata_format_test)
+
+    add_executable(metadata_picture_test tests/metadata_picture_test.cpp)
+    target_link_libraries(metadata_picture_test PRIVATE xune_audio)
+    target_include_directories(metadata_picture_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_definitions(metadata_picture_test PRIVATE TEST_DATA_DIR="${METADATA_TEST_DATA_DIR}")
+    add_test(NAME metadata_picture_test COMMAND metadata_picture_test)
+
     message(STATUS "  Tests:              enabled (reference data: ${REFERENCE_DATA_DIR})")
 endif()
 

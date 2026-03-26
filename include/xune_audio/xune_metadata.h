@@ -121,6 +121,13 @@ XUNE_AUDIO_API int xune_meta_has_picture(xune_meta_handle_t handle);
 XUNE_AUDIO_API const uint8_t* xune_meta_picture_data(xune_meta_handle_t handle, int* out_size);
 XUNE_AUDIO_API const char* xune_meta_picture_mime(xune_meta_handle_t handle);
 
+/// Set or replace the front cover picture.
+/// @param data Raw image bytes (JPEG or PNG)
+/// @param size Size of data in bytes
+/// @param mime MIME type string (e.g. "image/jpeg")
+XUNE_AUDIO_API void xune_meta_set_picture(xune_meta_handle_t handle,
+    const uint8_t* data, int size, const char* mime);
+
 // ── Release Date ─────────────────────────────────────────────────────────────
 /// Format-specific: TDRC for ID3v2, RELEASEDATE/DATE for Vorbis, etc.
 XUNE_AUDIO_API const char* xune_meta_release_date(xune_meta_handle_t handle);

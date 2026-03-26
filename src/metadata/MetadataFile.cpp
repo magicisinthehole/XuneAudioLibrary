@@ -685,6 +685,80 @@ PictureData MetadataFile::picture() const {
     return {};
 }
 
+static TagLib::FLAC::Picture* make_front_cover(
+    const TagLib::String& mime, const TagLib::ByteVector& data) {
+    auto* pic = new TagLib::FLAC::Picture();
+    pic->setType(TagLib::FLAC::Picture::FrontCover);
+    pic->setMimeType(mime);
+    pic->setData(data);
+    return pic;
+}
+
+void MetadataFile::set_picture(const uint8_t* data, int size, const std::string& mime_type) {
+    if (!is_valid() || !data || size <= 0) return;
+    auto* file = file_ref_->file();
+    auto tl_mime = to_taglib_string(mime_type);
+    TagLib::ByteVector bv(reinterpret_cast<const char*>(data), static_cast<unsigned int>(size));
+
+    if (auto* flac = dynamic_cast<TagLib::FLAC::File*>(file)) {
+        flac->removePictures();
+        flac->addPicture(make_front_cover(tl_mime, bv));
+        return;
+    }
+
+    if (auto* ogg = dynamic_cast<TagLib::Ogg::Vorbis::File*>(file)) {
+        if (auto* xiph = ogg->tag()) {
+            xiph->removeAllPictures();
+            xiph->addPicture(make_front_cover(tl_mime, bv));
+            return;
+        }
+    }
+
+    if (auto* oggflac = dynamic_cast<TagLib::Ogg::FLAC::File*>(file)) {
+        if (auto* xiph = oggflac->tag()) {
+            xiph->removeAllPictures();
+            xiph->addPicture(make_front_cover(tl_mime, bv));
+            return;
+        }
+    }
+
+    if (auto* mpeg = dynamic_cast<TagLib::MPEG::File*>(file)) {
+        if (auto* id3v2 = mpeg->ID3v2Tag(true)) {
+            id3v2->removeFrames("APIC");
+            auto* pic = new TagLib::ID3v2::AttachedPictureFrame();
+            pic->setType(TagLib::ID3v2::AttachedPictureFrame::FrontCover);
+            pic->setMimeType(tl_mime);
+            pic->setPicture(bv);
+            id3v2->addFrame(pic);
+            return;
+        }
+    }
+
+    if (auto* mp4 = dynamic_cast<TagLib::MP4::File*>(file)) {
+        if (mp4->tag()) {
+            auto fmt = (mime_type == "image/png")
+                ? TagLib::MP4::CoverArt::PNG
+                : TagLib::MP4::CoverArt::JPEG;
+            TagLib::MP4::CoverArtList covers;
+            covers.append(TagLib::MP4::CoverArt(fmt, bv));
+            mp4->tag()->setItem("covr", covers);
+            return;
+        }
+    }
+
+    if (auto* asf = dynamic_cast<TagLib::ASF::File*>(file)) {
+        if (asf->tag()) {
+            asf->tag()->removeItem("WM/Picture");
+            TagLib::ASF::Picture pic;
+            pic.setType(TagLib::ASF::Picture::FrontCover);
+            pic.setMimeType(tl_mime);
+            pic.setPicture(bv);
+            asf->tag()->addAttribute("WM/Picture", pic);
+            return;
+        }
+    }
+}
+
 // ── Release Date ─────────────────────────────────────────────────────────────
 
 std::string MetadataFile::release_date() const {

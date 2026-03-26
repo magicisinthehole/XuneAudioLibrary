@@ -75,6 +75,7 @@ public:
     // ── Artwork ──────────────────────────────────────────────────────────
     bool has_picture() const;
     PictureData picture() const;
+    void set_picture(const uint8_t* data, int size, const std::string& mime_type);
 
     // ── Release Date ─────────────────────────────────────────────────────
     std::string release_date() const;

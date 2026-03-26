@@ -1,0 +1,161 @@
+#include <xune_audio/xune_metadata.h>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+#include <fstream>
+#include <filesystem>
+
+#ifndef TEST_DATA_DIR
+#error "TEST_DATA_DIR must be defined"
+#endif
+
+static int g_pass = 0;
+static int g_fail = 0;
+
+#define CHECK(cond, fmt, ...) do { \
+    if (cond) { printf("  [OK] " fmt "\n", ##__VA_ARGS__); g_pass++; } \
+    else { printf("  [FAIL] " fmt "\n", ##__VA_ARGS__); g_fail++; } \
+} while(0)
+
+// Minimal valid 1x1 JPEG (285 bytes)
+static const uint8_t JPEG_1X1[] = {
+    0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
+    0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
+    0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
+    0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D, 0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12,
+    0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E, 0x1D, 0x1A, 0x1C, 0x1C, 0x20,
+    0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C, 0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29,
+    0x2C, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32,
+    0x3C, 0x2E, 0x33, 0x34, 0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01,
+    0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00,
+    0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+    0x09, 0x0A, 0x0B, 0xFF, 0xC4, 0x00, 0xB5, 0x10, 0x00, 0x02, 0x01, 0x03,
+    0x03, 0x02, 0x04, 0x03, 0x05, 0x05, 0x04, 0x04, 0x00, 0x00, 0x01, 0x7D,
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06,
+    0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08,
+    0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0, 0x24, 0x33, 0x62, 0x72,
+    0x82, 0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28,
+    0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45,
+    0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+    0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73, 0x74, 0x75,
+    0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+    0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3,
+    0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
+    0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xFF, 0xDA, 0x00,
+    0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7B, 0x94, 0x11, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
+    0xD9
+};
+static const int JPEG_1X1_SIZE = sizeof(JPEG_1X1);
+
+std::string make_temp_copy(const char* filename) {
+    auto src = std::string(TEST_DATA_DIR) + "/" + filename;
+    auto dst = std::filesystem::temp_directory_path() / ("xune_pic_test_" + std::string(filename));
+    std::filesystem::copy_file(src, dst, std::filesystem::copy_options::overwrite_existing);
+    return dst.string();
+}
+
+void test_set_picture(const char* filename) {
+    printf("\n=== set_picture: %s ===\n", filename);
+
+    auto tmp = make_temp_copy(filename);
+
+    // Open, set picture, save
+    xune_meta_handle_t handle = nullptr;
+    auto err = xune_meta_open(tmp.c_str(), &handle);
+    if (err != XUNE_META_OK) {
+        printf("  [FAIL] Failed to open: error %d\n", err);
+        g_fail++;
+        return;
+    }
+
+    xune_meta_set_picture(handle, JPEG_1X1, JPEG_1X1_SIZE, "image/jpeg");
+    auto save_err = xune_meta_save(handle);
+    CHECK(save_err == XUNE_META_OK, "Save succeeded (err=%d)", save_err);
+    xune_meta_close(handle);
+
+    // Reopen and verify picture was written
+    handle = nullptr;
+    err = xune_meta_open(tmp.c_str(), &handle);
+    if (err != XUNE_META_OK) {
+        printf("  [FAIL] Failed to reopen: error %d\n", err);
+        g_fail++;
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    CHECK(xune_meta_has_picture(handle) == 1, "Has picture after set");
+
+    int pic_size = 0;
+    auto* pic_data = xune_meta_picture_data(handle, &pic_size);
+    CHECK(pic_data != nullptr, "Picture data pointer is not null");
+    CHECK(pic_size == JPEG_1X1_SIZE, "Picture size = %d (expected %d)", pic_size, JPEG_1X1_SIZE);
+
+    if (pic_data && pic_size == JPEG_1X1_SIZE) {
+        CHECK(memcmp(pic_data, JPEG_1X1, JPEG_1X1_SIZE) == 0, "Picture data matches byte-for-byte");
+    }
+
+    auto* mime = xune_meta_picture_mime(handle);
+    CHECK(mime && strcmp(mime, "image/jpeg") == 0, "MIME = 'image/jpeg' (got: '%s')", mime ?: "(null)");
+
+    xune_meta_close(handle);
+    std::filesystem::remove(tmp);
+}
+
+void test_overwrite_picture(const char* filename) {
+    printf("\n=== overwrite_picture: %s ===\n", filename);
+
+    auto tmp = make_temp_copy(filename);
+
+    // Set picture twice — second should replace first
+    xune_meta_handle_t handle = nullptr;
+    xune_meta_open(tmp.c_str(), &handle);
+    xune_meta_set_picture(handle, JPEG_1X1, JPEG_1X1_SIZE, "image/jpeg");
+    xune_meta_save(handle);
+    xune_meta_close(handle);
+
+    // Set a different-size "picture" (just use a prefix of the JPEG as dummy data)
+    uint8_t small_data[] = {0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0xFF, 0xD9};
+    int small_size = sizeof(small_data);
+
+    xune_meta_open(tmp.c_str(), &handle);
+    xune_meta_set_picture(handle, small_data, small_size, "image/jpeg");
+    xune_meta_save(handle);
+    xune_meta_close(handle);
+
+    // Verify only the second picture exists
+    xune_meta_open(tmp.c_str(), &handle);
+    int pic_size = 0;
+    auto* pic_data = xune_meta_picture_data(handle, &pic_size);
+    CHECK(pic_size == small_size, "Overwritten picture size = %d (expected %d)", pic_size, small_size);
+    if (pic_data && pic_size == small_size) {
+        CHECK(memcmp(pic_data, small_data, small_size) == 0, "Overwritten picture data matches");
+    }
+    xune_meta_close(handle);
+    std::filesystem::remove(tmp);
+}
+
+int main() {
+    const char* formats[] = {
+        "test.flac",
+        "test.mp3",
+        "test.ogg",
+        "test.m4a",
+        "test.wma",
+        "test_lossless.wma",
+    };
+
+    for (auto* f : formats)
+        test_set_picture(f);
+
+    // Overwrite tests on a subset of formats
+    test_overwrite_picture("test.flac");
+    test_overwrite_picture("test.mp3");
+    test_overwrite_picture("test.m4a");
+
+    printf("\n========================================\n");
+    printf("TOTAL: %d passed, %d failed\n", g_pass, g_fail);
+    return g_fail > 0 ? 1 : 0;
+}
