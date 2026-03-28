@@ -45,6 +45,9 @@ if(NOT EXISTS "${CHROMAPRINT_LIBRARY}")
     if(APPLE)
         set(CHROMAPRINT_FFT_LIB "vdsp")       # macOS Accelerate framework (fastest, zero deps)
         set(CHROMAPRINT_PLATFORM_FLAGS -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15)
+        if(CMAKE_OSX_ARCHITECTURES)
+            list(APPEND CHROMAPRINT_PLATFORM_FLAGS -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
+        endif()
     elseif(UNIX)
         set(CHROMAPRINT_FFT_LIB "fftw3")      # FFTW3 on Linux (install with: sudo apt install libfftw3-dev)
         set(CHROMAPRINT_PLATFORM_FLAGS)
@@ -111,6 +114,9 @@ if(NOT EXISTS "${EBUR128_LIBRARY}")
     set(EBUR128_PLATFORM_FLAGS)
     if(APPLE)
         list(APPEND EBUR128_PLATFORM_FLAGS -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15)
+        if(CMAKE_OSX_ARCHITECTURES)
+            list(APPEND EBUR128_PLATFORM_FLAGS -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
+        endif()
     endif()
 
     execute_process(
@@ -189,7 +195,12 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
 
     # Determine runtime identifier based on platform and architecture
     if(APPLE)
-        if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        if(CMAKE_OSX_ARCHITECTURES)
+            set(_target_arch "${CMAKE_OSX_ARCHITECTURES}")
+        else()
+            set(_target_arch "${CMAKE_SYSTEM_PROCESSOR}")
+        endif()
+        if(_target_arch MATCHES "arm64|aarch64")
             set(RUNTIME_ID "osx-arm64")
         else()
             set(RUNTIME_ID "osx-x64")
@@ -240,6 +251,11 @@ endif()
 
 option(FORCE_ONNX "Force ONNX Runtime backend even on macOS (for testing)" OFF)
 
+# MLX requires Apple Silicon (Metal GPU) — force ONNX for x86_64 cross-compilation
+if(APPLE AND CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+    set(FORCE_ONNX ON CACHE BOOL "Forced ON: MLX requires Apple Silicon" FORCE)
+endif()
+
 if(APPLE AND NOT FORCE_ONNX)
     # MLX backend (Metal GPU on Apple Silicon)
     message(STATUS "")
@@ -284,7 +300,13 @@ else()
         message(STATUS "[OK] ONNX Runtime (local): ${ORT_LOCAL_DIR}")
     else()
         if(APPLE)
-            set(ORT_PLATFORM "osx-arm64")
+            if(_target_arch STREQUAL "x86_64")
+                set(ORT_PLATFORM "osx-x86_64")
+                # ORT dropped x86_64 macOS binaries in v1.24.0
+                set(ORT_VERSION "1.23.1")
+            else()
+                set(ORT_PLATFORM "osx-arm64")
+            endif()
             set(ORT_LIB_NAME "libonnxruntime.dylib")
         elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
@@ -579,6 +601,30 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
                 COMMAND ${CMAKE_COMMAND} -E copy "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}" "${RUNTIME_DIR}/"
                 COMMENT "Copying ONNX Runtime library to ${RUNTIME_DIR}/"
             )
+            # macOS + ONNX: fix install names so dyld finds ORT via @loader_path
+            if(APPLE)
+                file(GLOB _ort_versioned_dylibs "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.*.dylib")
+                if(NOT _ort_versioned_dylibs)
+                    message(FATAL_ERROR "No versioned ORT dylib found in ${onnxruntime_SOURCE_DIR}/lib/ — install_name_tool fixups cannot proceed")
+                endif()
+                list(GET _ort_versioned_dylibs 0 _ort_versioned_dylib)
+                get_filename_component(_ort_versioned_name "${_ort_versioned_dylib}" NAME)
+                add_custom_command(TARGET xune_audio POST_BUILD
+                    COMMAND install_name_tool -id "@loader_path/${ORT_LIB_NAME}" "${RUNTIME_DIR}/${ORT_LIB_NAME}"
+                    COMMAND install_name_tool -change "@rpath/${_ort_versioned_name}" "@loader_path/${ORT_LIB_NAME}"
+                        "${RUNTIME_DIR}/$<TARGET_FILE_NAME:xune_audio>"
+                    COMMAND install_name_tool -change "@rpath/${_ort_versioned_name}" "@loader_path/${ORT_LIB_NAME}"
+                        "${RUNTIME_DIR}/libxune_audio.dylib"
+                    COMMAND install_name_tool -id "@loader_path/libxune_audio.1.dylib"
+                        "${RUNTIME_DIR}/$<TARGET_FILE_NAME:xune_audio>"
+                    COMMAND install_name_tool -id "@loader_path/libxune_audio.1.dylib"
+                        "${RUNTIME_DIR}/libxune_audio.dylib"
+                    COMMAND codesign --force --sign - "${RUNTIME_DIR}/${ORT_LIB_NAME}"
+                    COMMAND codesign --force --sign - "${RUNTIME_DIR}/$<TARGET_FILE_NAME:xune_audio>"
+                    COMMAND codesign --force --sign - "${RUNTIME_DIR}/libxune_audio.dylib"
+                    COMMENT "Fixing ONNX Runtime install names for hardened runtime"
+                )
+            endif()
             # Copy versioned .so and EP plugin libraries
             if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
                 file(GLOB ORT_VERSIONED_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.*")
