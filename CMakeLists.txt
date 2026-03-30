@@ -692,6 +692,17 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         endif()
     endif()
 
+    # Bundle zlib DLL on Windows (TagLib links against vcpkg zlib dynamically)
+    if(WIN32)
+        find_file(ZLIB_DLL NAMES "zlib1.dll" HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
+        if(ZLIB_DLL)
+            add_custom_command(TARGET xune_audio POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy "${ZLIB_DLL}" "${RUNTIME_DIR}/"
+                COMMENT "Bundling zlib DLL to ${RUNTIME_DIR}/"
+            )
+        endif()
+    endif()
+
     # Bundle FFTW3F on Linux (not available in Flatpak/AppImage sandboxes)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         get_filename_component(FFTW3F_REALPATH "${FFTW3F_LIBRARY}" REALPATH)
