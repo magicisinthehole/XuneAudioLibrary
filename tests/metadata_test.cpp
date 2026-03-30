@@ -7,6 +7,22 @@
 #error "TEST_FILE_PATH must be defined"
 #endif
 
+#define S(x) ((x) ? (x) : "(null)")
+
+static void print_double(const char* label, double val, const char* unit) {
+    if (std::isnan(val))
+        printf("%s: NaN\n", label);
+    else
+        printf("%s: %.2f%s\n", label, val, unit);
+}
+
+static void print_peak(const char* label, double val) {
+    if (std::isnan(val))
+        printf("%s: NaN\n", label);
+    else
+        printf("%s: %.6f\n", label, val);
+}
+
 int main() {
     xune_meta_handle_t handle = nullptr;
     auto err = xune_meta_open(TEST_FILE_PATH, &handle);
@@ -20,14 +36,14 @@ int main() {
     printf("Bitrate:     %d kbps\n", xune_meta_bitrate(handle));
     printf("Sample rate: %d Hz\n", xune_meta_sample_rate(handle));
     printf("Bit depth:   %d\n", xune_meta_bits_per_sample(handle));
-    printf("Codec:       %s\n", xune_meta_codec_description(handle) ?: "(null)");
+    printf("Codec:       %s\n", S(xune_meta_codec_description(handle)));
 
     printf("\n=== Single-Value Tags ===\n");
-    printf("Title:       %s\n", xune_meta_title(handle) ?: "(null)");
-    printf("Title sort:  %s\n", xune_meta_title_sort(handle) ?: "(null)");
-    printf("Album:       %s\n", xune_meta_album(handle) ?: "(null)");
-    printf("Album sort:  %s\n", xune_meta_album_sort(handle) ?: "(null)");
-    printf("Genre:       %s\n", xune_meta_genre(handle) ?: "(null)");
+    printf("Title:       %s\n", S(xune_meta_title(handle)));
+    printf("Title sort:  %s\n", S(xune_meta_title_sort(handle)));
+    printf("Album:       %s\n", S(xune_meta_album(handle)));
+    printf("Album sort:  %s\n", S(xune_meta_album_sort(handle)));
+    printf("Genre:       %s\n", S(xune_meta_genre(handle)));
     printf("Track:       %u\n", xune_meta_track_number(handle));
     printf("Disc:        %u\n", xune_meta_disc_number(handle));
     printf("Year:        %u\n", xune_meta_year(handle));
@@ -37,14 +53,14 @@ int main() {
     printf("Artist count: %d\n", artist_count);
     for (int i = 0; i < artist_count; i++)
         printf("  Artist[%d]: '%s'\n", i, xune_meta_artist_at(handle, i));
-    printf("Artist display: '%s'\n", xune_meta_artist_display(handle) ?: "(null)");
-    printf("Artist sort: '%s'\n", xune_meta_artist_sort(handle) ?: "(null)");
+    printf("Artist display: '%s'\n", S(xune_meta_artist_display(handle)));
+    printf("Artist sort: '%s'\n", S(xune_meta_artist_sort(handle)));
 
     int aa_count = xune_meta_album_artist_count(handle);
     printf("Album artist count: %d\n", aa_count);
     for (int i = 0; i < aa_count; i++)
         printf("  AlbumArtist[%d]: '%s'\n", i, xune_meta_album_artist_at(handle, i));
-    printf("Album artist sort: '%s'\n", xune_meta_album_artist_sort(handle) ?: "(null)");
+    printf("Album artist sort: '%s'\n", S(xune_meta_album_artist_sort(handle)));
 
     printf("\n=== MusicBrainz IDs ===\n");
     int mbaid_count = xune_meta_mb_artist_id_count(handle);
@@ -57,10 +73,10 @@ int main() {
     for (int i = 0; i < mbaaid_count; i++)
         printf("  MB AlbumArtistID[%d]: '%s'\n", i, xune_meta_mb_album_artist_id_at(handle, i));
 
-    printf("MB Recording ID:     %s\n", xune_meta_mb_recording_id(handle) ?: "(null)");
-    printf("MB Release Track ID: %s\n", xune_meta_mb_release_track_id(handle) ?: "(null)");
-    printf("MB Release ID:       %s\n", xune_meta_mb_release_id(handle) ?: "(null)");
-    printf("MB Release Group ID: %s\n", xune_meta_mb_release_group_id(handle) ?: "(null)");
+    printf("MB Recording ID:     %s\n", S(xune_meta_mb_recording_id(handle)));
+    printf("MB Release Track ID: %s\n", S(xune_meta_mb_release_track_id(handle)));
+    printf("MB Release ID:       %s\n", S(xune_meta_mb_release_id(handle)));
+    printf("MB Release Group ID: %s\n", S(xune_meta_mb_release_group_id(handle)));
     printf("AcoustID FP:         %s\n", xune_meta_acoustid_fingerprint(handle) ? "present" : "(null)");
 
     printf("\n=== ReplayGain ===\n");
@@ -68,20 +84,20 @@ int main() {
     double tp = xune_meta_replaygain_track_peak(handle);
     double ag = xune_meta_replaygain_album_gain(handle);
     double ap = xune_meta_replaygain_album_peak(handle);
-    printf("Track gain: %s\n", std::isnan(tg) ? "NaN" : (sprintf((char[32]){}, "%.2f dB", tg), (char[32]){}));
-    printf("Track peak: %s\n", std::isnan(tp) ? "NaN" : (sprintf((char[32]){}, "%.6f", tp), (char[32]){}));
-    printf("Album gain: %s\n", std::isnan(ag) ? "NaN" : (sprintf((char[32]){}, "%.2f dB", ag), (char[32]){}));
-    printf("Album peak: %s\n", std::isnan(ap) ? "NaN" : (sprintf((char[32]){}, "%.6f", ap), (char[32]){}));
+    print_double("Track gain", tg, " dB");
+    print_peak("Track peak", tp);
+    print_double("Album gain", ag, " dB");
+    print_peak("Album peak", ap);
 
     printf("\n=== Artwork ===\n");
     printf("Has picture: %d\n", xune_meta_has_picture(handle));
     int pic_size = 0;
     auto* pic_data = xune_meta_picture_data(handle, &pic_size);
     printf("Picture size: %d bytes\n", pic_size);
-    printf("Picture MIME: %s\n", xune_meta_picture_mime(handle) ?: "(null)");
+    printf("Picture MIME: %s\n", S(xune_meta_picture_mime(handle)));
 
     printf("\n=== Release Date ===\n");
-    printf("Release date: %s\n", xune_meta_release_date(handle) ?: "(null)");
+    printf("Release date: %s\n", S(xune_meta_release_date(handle)));
 
     // Validation
     printf("\n=== VALIDATION ===\n");

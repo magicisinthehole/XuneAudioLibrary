@@ -769,7 +769,7 @@ if(BUILD_TESTS)
     endif()
 
     include(GoogleTest)
-    gtest_discover_tests(smartdj_test)
+    gtest_discover_tests(smartdj_test DISCOVERY_MODE PRE_TEST)
 
     # Beat tracking test
     set(BEAT_REFERENCE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_reference_data")
@@ -806,7 +806,7 @@ if(BUILD_TESTS)
     if(XUNE_USE_MLX)
         target_compile_definitions(beat_test PRIVATE XUNE_USE_MLX)
     endif()
-    gtest_discover_tests(beat_test)
+    gtest_discover_tests(beat_test DISCOVERY_MODE PRE_TEST)
 
     # Tool: generate reference embeddings using the C++ pipeline (for INT8 testing)
     add_executable(generate_reference_embeddings tools/generate_reference_embeddings.cpp ${SMARTDJ_SOURCES})

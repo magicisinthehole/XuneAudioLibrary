@@ -98,7 +98,7 @@ void test_set_picture(const char* filename) {
     }
 
     auto* mime = xune_meta_picture_mime(handle);
-    CHECK(mime && strcmp(mime, "image/jpeg") == 0, "MIME = 'image/jpeg' (got: '%s')", mime ?: "(null)");
+    CHECK(mime && strcmp(mime, "image/jpeg") == 0, "MIME = 'image/jpeg' (got: '%s')", mime ? mime : "(null)");
 
     xune_meta_close(handle);
     std::filesystem::remove(tmp);
