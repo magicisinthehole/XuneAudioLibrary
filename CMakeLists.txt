@@ -48,6 +48,9 @@ if(NOT EXISTS "${CHROMAPRINT_LIBRARY}")
         if(CMAKE_OSX_ARCHITECTURES)
             list(APPEND CHROMAPRINT_PLATFORM_FLAGS -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
         endif()
+    elseif(WIN32)
+        set(CHROMAPRINT_FFT_LIB "fftw3")      # FFTW3 on Windows (install with: vcpkg install fftw3:x64-windows)
+        set(CHROMAPRINT_PLATFORM_FLAGS)
     elseif(UNIX)
         set(CHROMAPRINT_FFT_LIB "fftw3")      # FFTW3 on Linux (install with: sudo apt install libfftw3-dev)
         set(CHROMAPRINT_PLATFORM_FLAGS)
@@ -400,10 +403,10 @@ if(APPLE)
     set(NOWPLAYING_LIBS ${MEDIAPLAYER_FRAMEWORK} ${FOUNDATION_FRAMEWORK} ${APPKIT_FRAMEWORK})
     message(STATUS "  Platform: macOS (MediaPlayer.framework)")
 elseif(WIN32)
-    # Windows: stub for now, full SMTC implementation later
-    set(NOWPLAYING_SOURCES src/nowplaying/nowplaying_stub.cpp)
-    set(NOWPLAYING_LIBS)
-    message(STATUS "  Platform: Windows (stub)")
+    # Windows: SystemMediaTransportControls via C++/WinRT
+    set(NOWPLAYING_SOURCES src/nowplaying/nowplaying_windows.cpp)
+    set(NOWPLAYING_LIBS RuntimeObject)
+    message(STATUS "  Platform: Windows (SMTC via C++/WinRT)")
 elseif(UNIX)
     # Linux: stub for now, D-Bus/MPRIS implementation later
     set(NOWPLAYING_SOURCES src/nowplaying/nowplaying_stub.cpp)
@@ -531,6 +534,14 @@ if(APPLE)
     set_target_properties(xune_audio PROPERTIES
         OSX_DEPLOYMENT_TARGET "10.15"
     )
+elseif(WIN32)
+    # C++/WinRT for SMTC Now Playing integration
+    target_compile_options(xune_audio PRIVATE /await)
+    target_compile_definitions(xune_audio PRIVATE
+        WINRT_LEAN_AND_MEAN
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
 endif()
 
 # Post-build: copy to .NET runtime directory
@@ -538,9 +549,14 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
     add_custom_command(TARGET xune_audio POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${RUNTIME_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:xune_audio>" "${RUNTIME_DIR}/"
-        COMMAND ${CMAKE_COMMAND} -E create_symlink "$<TARGET_FILE_NAME:xune_audio>" "${RUNTIME_DIR}/libxune_audio$<IF:$<PLATFORM_ID:Darwin>,.dylib,.so>"
         COMMENT "Copying xune_audio library to ${RUNTIME_DIR}/"
     )
+    # Create platform-specific symlinks (not needed on Windows — DLL name is xune_audio.dll)
+    if(NOT WIN32)
+        add_custom_command(TARGET xune_audio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E create_symlink "$<TARGET_FILE_NAME:xune_audio>" "${RUNTIME_DIR}/libxune_audio$<IF:$<PLATFORM_ID:Darwin>,.dylib,.so>"
+        )
+    endif()
 
     # macOS: bundle libmlx and fix install names for hardened runtime compatibility
     if(APPLE AND NOT FORCE_ONNX)
@@ -641,6 +657,18 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
                     )
                 endforeach()
             endif()
+        endif()
+    endif()
+
+    # Bundle FFTW3F DLL on Windows (not a system library)
+    if(WIN32)
+        get_filename_component(FFTW3F_DIR "${FFTW3F_LIBRARY}" DIRECTORY)
+        find_file(FFTW3F_DLL NAMES "fftw3f.dll" "libfftw3f-3.dll" HINTS "${FFTW3F_DIR}" "${FFTW3F_DIR}/../bin")
+        if(FFTW3F_DLL)
+            add_custom_command(TARGET xune_audio POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy "${FFTW3F_DLL}" "${RUNTIME_DIR}/"
+                COMMENT "Bundling FFTW3F DLL to ${RUNTIME_DIR}/"
+            )
         endif()
     endif()
 
@@ -798,8 +826,10 @@ message(STATUS "  C++ standard:         ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Chromaprint library:  ${CHROMAPRINT_LIBRARY}")
 message(STATUS "  libebur128:           ${EBUR128_LIBRARY}")
 message(STATUS "  TagLib:               ${taglib_SOURCE_DIR}")
-if(APPLE)
+if(APPLE AND NOT FORCE_ONNX)
 message(STATUS "  Inference backend:    MLX (Metal GPU)")
+elseif(WIN32)
+message(STATUS "  Inference backend:    ONNX Runtime ${ORT_VERSION} DirectML (${ORT_WIN_RID})")
 else()
 message(STATUS "  Inference backend:    ONNX Runtime ${ORT_VERSION} (${ORT_PLATFORM})")
 endif()
