@@ -1,11 +1,3 @@
-/**
- * @file nowplaying_windows.cpp
- * @brief Windows implementation of Now Playing API using SMTC (SystemMediaTransportControls)
- *
- * Uses C++/WinRT to access Windows.Media.SystemMediaTransportControls.
- * Requires the HWND of the main application window passed to xune_nowplaying_init().
- */
-
 #include "xune_audio/xune_nowplaying.h"
 
 #include <windows.h>

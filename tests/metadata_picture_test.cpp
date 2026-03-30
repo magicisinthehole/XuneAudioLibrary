@@ -18,6 +18,8 @@ static int g_fail = 0;
     else { printf("  [FAIL] " fmt "\n", ##__VA_ARGS__); g_fail++; } \
 } while(0)
 
+#define S(x) ((x) ? (x) : "(null)")
+
 // Minimal valid 1x1 JPEG (285 bytes)
 static const uint8_t JPEG_1X1[] = {
     0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
@@ -98,7 +100,7 @@ void test_set_picture(const char* filename) {
     }
 
     auto* mime = xune_meta_picture_mime(handle);
-    CHECK(mime && strcmp(mime, "image/jpeg") == 0, "MIME = 'image/jpeg' (got: '%s')", mime ? mime : "(null)");
+    CHECK(mime && strcmp(mime, "image/jpeg") == 0, "MIME = 'image/jpeg' (got: '%s')", S(mime));
 
     xune_meta_close(handle);
     std::filesystem::remove(tmp);

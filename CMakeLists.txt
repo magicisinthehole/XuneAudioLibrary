@@ -404,6 +404,18 @@ if(NOT APPLE)
     find_path(FFTW3F_INCLUDE_DIR fftw3.h REQUIRED)
     message(STATUS "Found FFTW3F: ${FFTW3F_LIBRARY}")
     message(STATUS "Found FFTW3F include: ${FFTW3F_INCLUDE_DIR}")
+
+    # INTERFACE imported target so all consumers get link + include in one dependency
+    add_library(fftw3f_imported INTERFACE IMPORTED)
+    set_target_properties(fftw3f_imported PROPERTIES
+        INTERFACE_LINK_LIBRARIES "${FFTW3F_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${FFTW3F_INCLUDE_DIR}"
+    )
+endif()
+
+# Windows compile definitions shared across all targets
+if(WIN32)
+    set(WINDOWS_COMPILE_DEFS WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 endif()
 
 # ============================================================================
@@ -493,7 +505,7 @@ endif()
 # Enable exports macro
 target_compile_definitions(xune_audio PRIVATE XUNE_AUDIO_EXPORTS)
 if(WIN32)
-    target_compile_definitions(xune_audio PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(xune_audio PRIVATE ${WINDOWS_COMPILE_DEFS})
 endif()
 if(XUNE_USE_MLX)
     target_compile_definitions(xune_audio PRIVATE XUNE_USE_MLX)
@@ -542,9 +554,7 @@ if(APPLE)
     # Accelerate is already linked via PLATFORM_LIBRARIES / NOWPLAYING_LIBS on macOS
     target_link_libraries(xune_audio PRIVATE ${ACCELERATE_LIBRARY})
 else()
-    # FFTW3F single-precision on Linux/Windows
-    target_link_libraries(xune_audio PRIVATE ${FFTW3F_LIBRARY})
-    target_include_directories(xune_audio PRIVATE ${FFTW3F_INCLUDE_DIR})
+    target_link_libraries(xune_audio PRIVATE fftw3f_imported)
 endif()
 
 # macOS-specific settings
@@ -560,11 +570,7 @@ if(APPLE)
 elseif(WIN32)
     # C++/WinRT for SMTC Now Playing integration
     target_compile_options(xune_audio PRIVATE /await)
-    target_compile_definitions(xune_audio PRIVATE
-        WINRT_LEAN_AND_MEAN
-        WIN32_LEAN_AND_MEAN
-        NOMINMAX
-    )
+    target_compile_definitions(xune_audio PRIVATE WINRT_LEAN_AND_MEAN)
 endif()
 
 # Post-build: copy to .NET runtime directory
@@ -680,10 +686,10 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         endif()
     endif()
 
-    # Bundle FFTW3 DLLs on Windows (not system libraries)
-    # fftw3f.dll — float precision, used by libebur128
-    # fftw3.dll  — double precision, used by Chromaprint
+    # Bundle Windows-only DLLs (FFTW3, zlib)
     if(WIN32)
+        # fftw3f.dll — float precision, used by libebur128
+        # fftw3.dll  — double precision, used by Chromaprint
         get_filename_component(FFTW3F_DIR "${FFTW3F_LIBRARY}" DIRECTORY)
         find_file(FFTW3F_DLL NAMES "fftw3f.dll" "libfftw3f-3.dll" HINTS "${FFTW3F_DIR}" "${FFTW3F_DIR}/../bin")
         if(FFTW3F_DLL)
@@ -699,10 +705,8 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
                 COMMENT "Bundling FFTW3 DLL to ${RUNTIME_DIR}/"
             )
         endif()
-    endif()
 
-    # Bundle zlib DLL on Windows (TagLib links against vcpkg zlib dynamically)
-    if(WIN32)
+        # zlib1.dll — TagLib links against vcpkg zlib dynamically
         find_file(ZLIB_DLL NAMES "zlib1.dll" HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
         if(ZLIB_DLL)
             add_custom_command(TARGET xune_audio POST_BUILD
@@ -768,8 +772,7 @@ if(BUILD_TESTS)
     if(APPLE)
         target_link_libraries(smartdj_test PRIVATE ${ACCELERATE_LIBRARY})
     else()
-        target_link_libraries(smartdj_test PRIVATE ${FFTW3F_LIBRARY})
-        target_include_directories(smartdj_test PRIVATE ${FFTW3F_INCLUDE_DIR})
+        target_link_libraries(smartdj_test PRIVATE fftw3f_imported)
     endif()
     target_include_directories(smartdj_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -782,7 +785,7 @@ if(BUILD_TESTS)
         MODEL_PATH="${MODEL_PATH}"
     )
     if(WIN32)
-        target_compile_definitions(smartdj_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+        target_compile_definitions(smartdj_test PRIVATE ${WINDOWS_COMPILE_DEFS})
     endif()
     if(XUNE_USE_MLX)
         target_compile_definitions(smartdj_test PRIVATE XUNE_USE_MLX)
@@ -807,8 +810,7 @@ if(BUILD_TESTS)
     if(APPLE)
         target_link_libraries(beat_test PRIVATE ${ACCELERATE_LIBRARY})
     else()
-        target_link_libraries(beat_test PRIVATE ${FFTW3F_LIBRARY})
-        target_include_directories(beat_test PRIVATE ${FFTW3F_INCLUDE_DIR})
+        target_link_libraries(beat_test PRIVATE fftw3f_imported)
     endif()
     target_include_directories(beat_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -821,7 +823,7 @@ if(BUILD_TESTS)
         BEAT_MODEL_PATH="${BEAT_MODEL_PATH}"
     )
     if(WIN32)
-        target_compile_definitions(beat_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+        target_compile_definitions(beat_test PRIVATE ${WINDOWS_COMPILE_DEFS})
     endif()
     if(XUNE_USE_MLX)
         target_compile_definitions(beat_test PRIVATE XUNE_USE_MLX)
@@ -834,8 +836,7 @@ if(BUILD_TESTS)
     if(APPLE)
         target_link_libraries(generate_reference_embeddings PRIVATE ${ACCELERATE_LIBRARY})
     else()
-        target_link_libraries(generate_reference_embeddings PRIVATE ${FFTW3F_LIBRARY})
-        target_include_directories(generate_reference_embeddings PRIVATE ${FFTW3F_INCLUDE_DIR})
+        target_link_libraries(generate_reference_embeddings PRIVATE fftw3f_imported)
     endif()
     target_include_directories(generate_reference_embeddings PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -843,7 +844,7 @@ if(BUILD_TESTS)
     )
     target_compile_definitions(generate_reference_embeddings PRIVATE XUNE_AUDIO_EXPORTS)
     if(WIN32)
-        target_compile_definitions(generate_reference_embeddings PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+        target_compile_definitions(generate_reference_embeddings PRIVATE ${WINDOWS_COMPILE_DEFS})
     endif()
 
     # Metadata tests (format reading + picture writing)
