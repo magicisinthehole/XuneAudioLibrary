@@ -680,7 +680,9 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         endif()
     endif()
 
-    # Bundle FFTW3F DLL on Windows (not a system library)
+    # Bundle FFTW3 DLLs on Windows (not system libraries)
+    # fftw3f.dll — float precision, used by libebur128
+    # fftw3.dll  — double precision, used by Chromaprint
     if(WIN32)
         get_filename_component(FFTW3F_DIR "${FFTW3F_LIBRARY}" DIRECTORY)
         find_file(FFTW3F_DLL NAMES "fftw3f.dll" "libfftw3f-3.dll" HINTS "${FFTW3F_DIR}" "${FFTW3F_DIR}/../bin")
@@ -688,6 +690,13 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
             add_custom_command(TARGET xune_audio POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy "${FFTW3F_DLL}" "${RUNTIME_DIR}/"
                 COMMENT "Bundling FFTW3F DLL to ${RUNTIME_DIR}/"
+            )
+        endif()
+        find_file(FFTW3_DLL NAMES "fftw3.dll" "libfftw3-3.dll" HINTS "${FFTW3F_DIR}" "${FFTW3F_DIR}/../bin")
+        if(FFTW3_DLL)
+            add_custom_command(TARGET xune_audio POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy "${FFTW3_DLL}" "${RUNTIME_DIR}/"
+                COMMENT "Bundling FFTW3 DLL to ${RUNTIME_DIR}/"
             )
         endif()
     endif()
