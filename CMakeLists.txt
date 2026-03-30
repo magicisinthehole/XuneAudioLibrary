@@ -401,7 +401,9 @@ endif()
 # Linux/Windows: FFTW3F single-precision (eliminates float↔double conversion overhead)
 if(NOT APPLE)
     find_library(FFTW3F_LIBRARY fftw3f REQUIRED)
+    find_path(FFTW3F_INCLUDE_DIR fftw3.h REQUIRED)
     message(STATUS "Found FFTW3F: ${FFTW3F_LIBRARY}")
+    message(STATUS "Found FFTW3F include: ${FFTW3F_INCLUDE_DIR}")
 endif()
 
 # ============================================================================
@@ -490,6 +492,9 @@ endif()
 
 # Enable exports macro
 target_compile_definitions(xune_audio PRIVATE XUNE_AUDIO_EXPORTS)
+if(WIN32)
+    target_compile_definitions(xune_audio PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
 if(XUNE_USE_MLX)
     target_compile_definitions(xune_audio PRIVATE XUNE_USE_MLX)
 endif()
@@ -539,6 +544,7 @@ if(APPLE)
 else()
     # FFTW3F single-precision on Linux/Windows
     target_link_libraries(xune_audio PRIVATE ${FFTW3F_LIBRARY})
+    target_include_directories(xune_audio PRIVATE ${FFTW3F_INCLUDE_DIR})
 endif()
 
 # macOS-specific settings
@@ -626,9 +632,6 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
                     COMMAND ${CMAKE_COMMAND} -E copy "${ORT_LIB}" "${RUNTIME_DIR}/"
                 )
             endforeach()
-            add_custom_command(TARGET xune_audio POST_BUILD
-                COMMENT "Copying ONNX Runtime DirectML libraries to ${RUNTIME_DIR}/"
-            )
         else()
             add_custom_command(TARGET xune_audio POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy "${onnxruntime_SOURCE_DIR}/lib/${ORT_LIB_NAME}" "${RUNTIME_DIR}/"
@@ -746,6 +749,7 @@ if(BUILD_TESTS)
         target_link_libraries(smartdj_test PRIVATE ${ACCELERATE_LIBRARY})
     else()
         target_link_libraries(smartdj_test PRIVATE ${FFTW3F_LIBRARY})
+        target_include_directories(smartdj_test PRIVATE ${FFTW3F_INCLUDE_DIR})
     endif()
     target_include_directories(smartdj_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -757,6 +761,9 @@ if(BUILD_TESTS)
         REFERENCE_DATA_DIR="${REFERENCE_DATA_DIR}"
         MODEL_PATH="${MODEL_PATH}"
     )
+    if(WIN32)
+        target_compile_definitions(smartdj_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    endif()
     if(XUNE_USE_MLX)
         target_compile_definitions(smartdj_test PRIVATE XUNE_USE_MLX)
     endif()
@@ -781,6 +788,7 @@ if(BUILD_TESTS)
         target_link_libraries(beat_test PRIVATE ${ACCELERATE_LIBRARY})
     else()
         target_link_libraries(beat_test PRIVATE ${FFTW3F_LIBRARY})
+        target_include_directories(beat_test PRIVATE ${FFTW3F_INCLUDE_DIR})
     endif()
     target_include_directories(beat_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -792,6 +800,9 @@ if(BUILD_TESTS)
         BEAT_REFERENCE_DATA_DIR="${BEAT_REFERENCE_DATA_DIR}"
         BEAT_MODEL_PATH="${BEAT_MODEL_PATH}"
     )
+    if(WIN32)
+        target_compile_definitions(beat_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    endif()
     if(XUNE_USE_MLX)
         target_compile_definitions(beat_test PRIVATE XUNE_USE_MLX)
     endif()
@@ -804,12 +815,16 @@ if(BUILD_TESTS)
         target_link_libraries(generate_reference_embeddings PRIVATE ${ACCELERATE_LIBRARY})
     else()
         target_link_libraries(generate_reference_embeddings PRIVATE ${FFTW3F_LIBRARY})
+        target_include_directories(generate_reference_embeddings PRIVATE ${FFTW3F_INCLUDE_DIR})
     endif()
     target_include_directories(generate_reference_embeddings PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     target_compile_definitions(generate_reference_embeddings PRIVATE XUNE_AUDIO_EXPORTS)
+    if(WIN32)
+        target_compile_definitions(generate_reference_embeddings PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    endif()
 
     # Metadata tests (format reading + picture writing)
     set(METADATA_TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/testdata")

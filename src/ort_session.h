@@ -17,6 +17,11 @@
 #include <string>
 #include <vector>
 #include <mutex>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include <onnxruntime_c_api.h>
 
 namespace xune {

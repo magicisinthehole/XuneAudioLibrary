@@ -9,11 +9,15 @@
 #include "xune_audio/xune_nowplaying.h"
 
 #include <windows.h>
-#include <systemmediatransportcontrolsinterop.h>
 
+// Windows SDK WinRT midl-generated header (defines ABI::Windows::Media types)
+#include <windows.media.h>
+
+#include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.h>
 #include <winrt/Windows.Storage.Streams.h>
+#include <systemmediatransportcontrolsinterop.h>
 
 #include <mutex>
 #include <atomic>
@@ -97,7 +101,7 @@ int xune_nowplaying_init(
     try {
         winrt::init_apartment(winrt::apartment_type::single_threaded);
 
-        // Get SMTC for this window via the interop interface
+        // Get SMTC for this window via the COM interop interface
         auto interop = winrt::get_activation_factory<SystemMediaTransportControls,
             ISystemMediaTransportControlsInterop>();
 
