@@ -7,6 +7,19 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(FetchContent)
 
+macro(fail_if_process_failed action result_var output_var error_var)
+    if(NOT ${result_var} EQUAL 0)
+        set(_failure_details "Exit code: ${${result_var}}")
+        if(NOT "${${output_var}}" STREQUAL "")
+            string(APPEND _failure_details "\nstdout:\n${${output_var}}")
+        endif()
+        if(NOT "${${error_var}}" STREQUAL "")
+            string(APPEND _failure_details "\nstderr:\n${${error_var}}")
+        endif()
+        message(FATAL_ERROR "Failed to ${action}.\n${_failure_details}")
+    endif()
+endmacro()
+
 # Build type
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -44,7 +57,7 @@ if(CMAKE_GENERATOR)
     list(APPEND SUBBUILD_TOOLCHAIN_FLAGS -G "${CMAKE_GENERATOR}")
 endif()
 if(CMAKE_GENERATOR_PLATFORM)
-    list(APPEND SUBBUILD_TOOLCHAIN_FLAGS -A ${CMAKE_GENERATOR_PLATFORM})
+    list(APPEND SUBBUILD_TOOLCHAIN_FLAGS -A "${CMAKE_GENERATOR_PLATFORM}")
 endif()
 
 # Check if Chromaprint is already built
@@ -88,9 +101,7 @@ if(NOT EXISTS "${CHROMAPRINT_LIBRARY}")
         ERROR_VARIABLE CHROMAPRINT_CMAKE_ERROR
     )
 
-    if(NOT CHROMAPRINT_CMAKE_RESULT EQUAL 0)
-        message(FATAL_ERROR "Failed to configure Chromaprint:\n${CHROMAPRINT_CMAKE_ERROR}")
-    endif()
+    fail_if_process_failed("configure Chromaprint" CHROMAPRINT_CMAKE_RESULT CHROMAPRINT_CMAKE_OUTPUT CHROMAPRINT_CMAKE_ERROR)
 
     # Build Chromaprint
     message(STATUS "Building Chromaprint...")
@@ -101,9 +112,7 @@ if(NOT EXISTS "${CHROMAPRINT_LIBRARY}")
         ERROR_VARIABLE CHROMAPRINT_BUILD_ERROR
     )
 
-    if(NOT CHROMAPRINT_BUILD_RESULT EQUAL 0)
-        message(FATAL_ERROR "Failed to build Chromaprint:\n${CHROMAPRINT_BUILD_ERROR}")
-    endif()
+    fail_if_process_failed("build Chromaprint" CHROMAPRINT_BUILD_RESULT CHROMAPRINT_BUILD_OUTPUT CHROMAPRINT_BUILD_ERROR)
 
     message(STATUS "[OK] Chromaprint library built successfully")
 else()
@@ -127,6 +136,22 @@ endif()
 
 if(NOT EXISTS "${EBUR128_LIBRARY}")
     message(STATUS "libebur128 not found, building from source...")
+
+    # MSVC rejects #warning (error C1021). Patch the upstream source to use
+    # #pragma message under MSVC before configuring the sub-build.
+    if(MSVC)
+        set(_ebur128_src "${EBUR128_ROOT}/ebur128/ebur128.c")
+        file(READ "${_ebur128_src}" _ebur128_content)
+        string(FIND "${_ebur128_content}" "#pragma message" _already_patched)
+        if(_already_patched EQUAL -1)
+            string(REPLACE
+                "#warning \"manual FTZ is being used, please enable SSE2 (-msse2 -mfpmath=sse)\""
+                "#ifdef _MSC_VER\n#pragma message(\"libebur128: manual FTZ — SSE2 intrinsics unavailable for this target\")\n#else\n#warning \"manual FTZ is being used, please enable SSE2 (-msse2 -mfpmath=sse)\"\n#endif"
+                _ebur128_content "${_ebur128_content}")
+            file(WRITE "${_ebur128_src}" "${_ebur128_content}")
+            message(STATUS "Patched libebur128 ebur128.c for MSVC compatibility")
+        endif()
+    endif()
 
     file(MAKE_DIRECTORY ${EBUR128_BUILD_DIR})
 
@@ -154,9 +179,7 @@ if(NOT EXISTS "${EBUR128_LIBRARY}")
         ERROR_VARIABLE EBUR128_CMAKE_ERROR
     )
 
-    if(NOT EBUR128_CMAKE_RESULT EQUAL 0)
-        message(FATAL_ERROR "Failed to configure libebur128:\n${EBUR128_CMAKE_ERROR}")
-    endif()
+    fail_if_process_failed("configure libebur128" EBUR128_CMAKE_RESULT EBUR128_CMAKE_OUTPUT EBUR128_CMAKE_ERROR)
 
     message(STATUS "Building libebur128...")
     execute_process(
@@ -166,9 +189,7 @@ if(NOT EXISTS "${EBUR128_LIBRARY}")
         ERROR_VARIABLE EBUR128_BUILD_ERROR
     )
 
-    if(NOT EBUR128_BUILD_RESULT EQUAL 0)
-        message(FATAL_ERROR "Failed to build libebur128:\n${EBUR128_BUILD_ERROR}")
-    endif()
+    fail_if_process_failed("build libebur128" EBUR128_BUILD_RESULT EBUR128_BUILD_OUTPUT EBUR128_BUILD_ERROR)
 
     message(STATUS "[OK] libebur128 built successfully")
 else()
@@ -531,6 +552,9 @@ target_link_libraries(xune_audio PRIVATE ${SMARTDJ_INFERENCE_LIBS})
 # Link TagLib (static, for metadata reading/writing)
 # TagLib 2.0 only exports INSTALL_INTERFACE includes, so we add BUILD_INTERFACE manually
 target_link_libraries(xune_audio PRIVATE tag)
+if(WIN32)
+    target_compile_definitions(xune_audio PRIVATE TAGLIB_STATIC)
+endif()
 set(TAGLIB_INCLUDE_DIRS
     "${taglib_SOURCE_DIR}/taglib"
     "${taglib_SOURCE_DIR}/taglib/toolkit"
