@@ -688,8 +688,7 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
 
     # Bundle Windows-only DLLs (FFTW3, zlib)
     if(WIN32)
-        # fftw3f.dll — float precision, used by libebur128
-        # fftw3.dll  — double precision, used by Chromaprint
+        # fftw3f.dll used by libebur128, fftw3.dll used by Chromaprint
         get_filename_component(FFTW3F_DIR "${FFTW3F_LIBRARY}" DIRECTORY)
         find_file(FFTW3F_DLL NAMES "fftw3f.dll" "libfftw3f-3.dll" HINTS "${FFTW3F_DIR}" "${FFTW3F_DIR}/../bin")
         if(FFTW3F_DLL)
@@ -792,7 +791,11 @@ if(BUILD_TESTS)
     endif()
 
     include(GoogleTest)
-    gtest_discover_tests(smartdj_test DISCOVERY_MODE PRE_TEST)
+    if(WIN32)
+        gtest_discover_tests(smartdj_test DISCOVERY_MODE PRE_TEST)
+    else()
+        gtest_discover_tests(smartdj_test)
+    endif()
 
     # Beat tracking test
     set(BEAT_REFERENCE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src/Xune.App/Assets/Models/beat_reference_data")
@@ -828,7 +831,11 @@ if(BUILD_TESTS)
     if(XUNE_USE_MLX)
         target_compile_definitions(beat_test PRIVATE XUNE_USE_MLX)
     endif()
-    gtest_discover_tests(beat_test DISCOVERY_MODE PRE_TEST)
+    if(WIN32)
+        gtest_discover_tests(beat_test DISCOVERY_MODE PRE_TEST)
+    else()
+        gtest_discover_tests(beat_test)
+    endif()
 
     # Tool: generate reference embeddings using the C++ pipeline (for INT8 testing)
     add_executable(generate_reference_embeddings tools/generate_reference_embeddings.cpp ${SMARTDJ_SOURCES})
