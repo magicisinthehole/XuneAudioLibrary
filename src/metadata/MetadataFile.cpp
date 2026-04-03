@@ -93,7 +93,16 @@ std::string MetadataFile::codec_description() const {
         return "AAC";
     }
     if (dynamic_cast<TagLib::Vorbis::File*>(file)) return "Vorbis";
-    if (dynamic_cast<TagLib::ASF::File*>(file)) return "WMA";
+    if (auto* asf = dynamic_cast<TagLib::ASF::File*>(file)) {
+        if (auto* props = asf->audioProperties()) {
+            switch (props->codec()) {
+                case TagLib::ASF::Properties::WMA9Lossless: return "WMA Lossless";
+                case TagLib::ASF::Properties::WMA9Pro:      return "WMA Pro";
+                default: break;
+            }
+        }
+        return "WMA";
+    }
     if (dynamic_cast<TagLib::RIFF::WAV::File*>(file)) return "WAV";
     return {};
 }
