@@ -573,13 +573,17 @@ static DBusHandlerResult handle_message(
 
 static void dbus_loop() {
     while (g_running.load()) {
-        std::lock_guard<std::recursive_mutex> lock(g_mutex);
-        if (g_conn) {
-            // read_write does socket IO (blocks up to 50ms), dispatch processes
-            // queued messages. Both under the mutex to prevent racing cleanup.
-            dbus_connection_read_write(g_conn, 50);
-            while (dbus_connection_dispatch(g_conn) == DBUS_DISPATCH_DATA_REMAINS) {}
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_mutex);
+            if (g_conn) {
+                // Non-blocking read, then dispatch queued messages.
+                // Mutex is released between iterations so callers on other
+                // threads (UI thread P/Invoke calls) can acquire it promptly.
+                dbus_connection_read_write(g_conn, 0);
+                while (dbus_connection_dispatch(g_conn) == DBUS_DISPATCH_DATA_REMAINS) {}
+            }
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
 
