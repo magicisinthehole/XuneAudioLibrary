@@ -129,15 +129,25 @@ static void dispatch_command(xune_media_command_t cmd, int64_t param = 0) {
     }
 }
 
+/// Delete the current temp artwork file (if any) before replacing g_art_url.
+static void delete_artwork_temp() {
+    if (g_art_url.empty()) return;
+    const std::string prefix = "file:///tmp/xune-mpris-artwork-";
+    if (g_art_url.compare(0, prefix.size(), prefix) == 0)
+        unlink(g_art_url.c_str() + 7);  // strip "file://"
+}
+
 /// MPRIS metadata requires a URI for artwork — raw bytes aren't supported.
 /// Uses PID in the filename to avoid cross-process clobber.
-static std::string write_artwork_to_temp(const void* data, size_t size) {
+static std::string write_artwork_to_temp(const void* data, size_t size, uint64_t track_id) {
     if (!data || size == 0) return {};
 
     auto bytes = static_cast<const uint8_t*>(data);
     const char* ext = (size >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) ? ".jpg" : ".png";
 
-    std::string path = "/tmp/xune-mpris-artwork-" + std::to_string(getpid()) + ext;
+    // Track ID in the filename forces MPRIS clients to re-fetch when the track changes
+    std::string path = "/tmp/xune-mpris-artwork-" + std::to_string(getpid())
+        + "-" + std::to_string(track_id) + ext;
 
     FILE* f = fopen(path.c_str(), "wb");
     if (!f) return {};
@@ -687,6 +697,7 @@ void xune_nowplaying_cleanup(void) {
     g_artist.clear();
     g_album.clear();
     g_album_artist.clear();
+    delete_artwork_temp();
     g_art_url.clear();
     g_track_object_path = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
     g_track_id_counter = 0;
@@ -707,9 +718,10 @@ void xune_nowplaying_set_metadata(const xune_track_metadata_t* metadata) {
     g_track_id_counter++;
     g_track_object_path = "/org/mpris/MediaPlayer2/Track/" + std::to_string(g_track_id_counter);
 
+    delete_artwork_temp();
     g_art_url.clear();
     if (metadata->artwork_data && metadata->artwork_size > 0) {
-        g_art_url = write_artwork_to_temp(metadata->artwork_data, metadata->artwork_size);
+        g_art_url = write_artwork_to_temp(metadata->artwork_data, metadata->artwork_size, g_track_id_counter);
     } else if (metadata->artwork_path) {
         g_art_url = "file://";
         g_art_url += metadata->artwork_path;
@@ -735,6 +747,7 @@ void xune_nowplaying_clear_metadata(void) {
     g_artist.clear();
     g_album.clear();
     g_album_artist.clear();
+    delete_artwork_temp();
     g_art_url.clear();
     g_duration_us = 0;
     g_position_us = 0;
