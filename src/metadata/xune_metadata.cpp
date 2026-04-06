@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 // ── Handle Wrapper ───────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ xune_meta_error_t xune_meta_open(const char* path, xune_meta_handle_t* out_handl
     auto* handle = new MetadataHandle(path);
     if (!handle->file.is_valid()) {
         delete handle;
-        std::ifstream probe(path);
+        std::ifstream probe(std::filesystem::u8path(path));
         return probe.good() ? XUNE_META_ERROR_CORRUPT_FILE : XUNE_META_ERROR_FILE_NOT_FOUND;
     }
 

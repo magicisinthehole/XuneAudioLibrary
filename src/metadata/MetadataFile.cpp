@@ -2,6 +2,7 @@
 
 #include <fileref.h>
 #include <tag.h>
+#include <filesystem>
 
 // Format-specific headers
 #include <flacfile.h>
@@ -35,8 +36,15 @@ namespace xune {
 MetadataFile::MetadataFile(const std::string& path)
     : path_(path)
 {
-    file_ref_ = std::make_unique<TagLib::FileRef>(
-        TagLib::FileName(path.c_str()));
+#ifdef _WIN32
+    // On Windows, TagLib::FileName(const char*) uses the ANSI code page.
+    // Convert the UTF-8 path to a native wchar_t path so TagLib can open
+    // files with non-ASCII characters (Japanese, CJK, etc.).
+    auto fs_path = std::filesystem::u8path(path);
+    file_ref_ = std::make_unique<TagLib::FileRef>(TagLib::FileName(fs_path.c_str()));
+#else
+    file_ref_ = std::make_unique<TagLib::FileRef>(TagLib::FileName(path.c_str()));
+#endif
     if (is_valid())
         props_ = file_ref_->file()->properties();
 }
