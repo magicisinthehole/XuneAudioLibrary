@@ -63,20 +63,30 @@ xune_embedding_error_t xune_embedding_create(const char* model_path,
         return XUNE_EMBEDDING_ERROR_INVALID_ARGS;
     }
 
-    auto session = std::make_unique<xune_embedding_session>();
+    try {
+        auto session = std::make_unique<xune_embedding_session>();
 
-    // MelSpectrogram initializes filterbank in constructor (always succeeds)
-    std::string cache_str = cache_dir ? cache_dir : "";
-    if (!session->model.LoadModel(model_path, cache_str)) {
-        fprintf(stderr, "[xune_embedding] Failed to load model: %s\n", model_path);
+        // MelSpectrogram initializes filterbank in constructor (always succeeds)
+        std::string cache_str = cache_dir ? cache_dir : "";
+        if (!session->model.LoadModel(model_path, cache_str)) {
+            fprintf(stderr, "[xune_embedding] Failed to load model: %s\n", model_path);
+            *out_session = nullptr;
+            return XUNE_EMBEDDING_ERROR_MODEL_LOAD;
+        }
+
+        session->model.SetCancelFlag(&session->cancelled);
+        session->available = true;
+        *out_session = session.release();
+        return XUNE_EMBEDDING_OK;
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[xune_embedding] Session creation failed: %s\n", e.what());
+        *out_session = nullptr;
+        return XUNE_EMBEDDING_ERROR_MODEL_LOAD;
+    } catch (...) {
+        fprintf(stderr, "[xune_embedding] Session creation failed (unknown exception)\n");
         *out_session = nullptr;
         return XUNE_EMBEDDING_ERROR_MODEL_LOAD;
     }
-
-    session->model.SetCancelFlag(&session->cancelled);
-    session->available = true;
-    *out_session = session.release();
-    return XUNE_EMBEDDING_OK;
 }
 
 void xune_embedding_cancel(xune_embedding_session_t* session) {

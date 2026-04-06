@@ -81,19 +81,29 @@ xune_beat_error_t xune_beat_session_create(const char* model_path,
         return XUNE_BEAT_ERROR_INVALID_ARGS;
     }
 
-    auto session = std::make_unique<xune_beat_session>();
+    try {
+        auto session = std::make_unique<xune_beat_session>();
 
-    std::string cache_str = cache_dir ? cache_dir : "";
-    if (!session->model.LoadModel(model_path, cache_str)) {
-        fprintf(stderr, "[xune_beat] Failed to load model: %s\n", model_path);
+        std::string cache_str = cache_dir ? cache_dir : "";
+        if (!session->model.LoadModel(model_path, cache_str)) {
+            fprintf(stderr, "[xune_beat] Failed to load model: %s\n", model_path);
+            *out_session = nullptr;
+            return XUNE_BEAT_ERROR_MODEL_LOAD;
+        }
+
+        session->model.SetCancelFlag(&session->cancelled);
+        session->available = true;
+        *out_session = session.release();
+        return XUNE_BEAT_OK;
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[xune_beat] Session creation failed: %s\n", e.what());
+        *out_session = nullptr;
+        return XUNE_BEAT_ERROR_MODEL_LOAD;
+    } catch (...) {
+        fprintf(stderr, "[xune_beat] Session creation failed (unknown exception)\n");
         *out_session = nullptr;
         return XUNE_BEAT_ERROR_MODEL_LOAD;
     }
-
-    session->model.SetCancelFlag(&session->cancelled);
-    session->available = true;
-    *out_session = session.release();
-    return XUNE_BEAT_OK;
 }
 
 void xune_beat_session_cancel(xune_beat_session_t* session) {
