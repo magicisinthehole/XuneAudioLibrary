@@ -716,8 +716,18 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
         endif()
     endif()
 
-    # Bundle Windows-only DLLs (FFTW3, zlib)
+    # Bundle Windows-only DLLs (FFTW3, zlib, VC runtime)
     if(WIN32)
+        # Bundle Visual C++ Runtime automatically to bypass the need for an external installer
+        set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+        include(InstallRequiredSystemLibraries)
+        foreach(RT_LIB ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS})
+            add_custom_command(TARGET xune_audio POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy "${RT_LIB}" "${RUNTIME_DIR}/"
+                COMMENT "Bundling VC Runtime to ${RUNTIME_DIR}/"
+            )
+        endforeach()
+
         # fftw3f.dll used by libebur128, fftw3.dll used by Chromaprint
         get_filename_component(FFTW3F_DIR "${FFTW3F_LIBRARY}" DIRECTORY)
         find_file(FFTW3F_DLL NAMES "fftw3f.dll" "libfftw3f-3.dll" HINTS "${FFTW3F_DIR}" "${FFTW3F_DIR}/../bin")
