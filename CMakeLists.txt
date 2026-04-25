@@ -137,20 +137,22 @@ endif()
 if(NOT EXISTS "${EBUR128_LIBRARY}")
     message(STATUS "libebur128 not found, building from source...")
 
-    # MSVC rejects #warning (error C1021). Patch the upstream source to use
-    # #pragma message under MSVC before configuring the sub-build.
+    # MSVC rejects #warning (error C1021). Stage a copy of the upstream source
+    # under CMAKE_BINARY_DIR and patch the copy so the libebur128 submodule
+    # working tree stays clean on Windows builds.
     if(MSVC)
-        set(_ebur128_src "${EBUR128_ROOT}/ebur128/ebur128.c")
+        set(_ebur128_staged "${CMAKE_BINARY_DIR}/vendor/libebur128-staged")
+        file(REMOVE_RECURSE "${_ebur128_staged}")
+        file(COPY "${EBUR128_ROOT}/" DESTINATION "${_ebur128_staged}")
+        set(_ebur128_src "${_ebur128_staged}/ebur128/ebur128.c")
         file(READ "${_ebur128_src}" _ebur128_content)
-        string(FIND "${_ebur128_content}" "#pragma message" _already_patched)
-        if(_already_patched EQUAL -1)
-            string(REPLACE
-                "#warning \"manual FTZ is being used, please enable SSE2 (-msse2 -mfpmath=sse)\""
-                "#ifdef _MSC_VER\n#pragma message(\"libebur128: manual FTZ — SSE2 intrinsics unavailable for this target\")\n#else\n#warning \"manual FTZ is being used, please enable SSE2 (-msse2 -mfpmath=sse)\"\n#endif"
-                _ebur128_content "${_ebur128_content}")
-            file(WRITE "${_ebur128_src}" "${_ebur128_content}")
-            message(STATUS "Patched libebur128 ebur128.c for MSVC compatibility")
-        endif()
+        string(REPLACE
+            "#warning \"manual FTZ is being used, please enable SSE2 (-msse2 -mfpmath=sse)\""
+            "#ifdef _MSC_VER\n#pragma message(\"libebur128: manual FTZ — SSE2 intrinsics unavailable for this target\")\n#else\n#warning \"manual FTZ is being used, please enable SSE2 (-msse2 -mfpmath=sse)\"\n#endif"
+            _ebur128_content "${_ebur128_content}")
+        file(WRITE "${_ebur128_src}" "${_ebur128_content}")
+        message(STATUS "Patched staged libebur128 ebur128.c for MSVC compatibility")
+        set(EBUR128_ROOT "${_ebur128_staged}")
     endif()
 
     file(MAKE_DIRECTORY ${EBUR128_BUILD_DIR})
@@ -745,8 +747,9 @@ if(EXISTS "${AUDIO_NATIVE_DIR}")
             )
         endif()
 
-        # zlib1.dll — TagLib links against vcpkg zlib dynamically
-        find_file(ZLIB_DLL NAMES "zlib1.dll" HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
+        # zlib DLL — TagLib links against vcpkg zlib dynamically.
+        # vcpkg ships it as `z.dll`; older NuGet/system zlib uses `zlib1.dll`.
+        find_file(ZLIB_DLL NAMES "zlib1.dll" "z.dll" "zlib.dll" HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
         if(ZLIB_DLL)
             add_custom_command(TARGET xune_audio POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy "${ZLIB_DLL}" "${RUNTIME_DIR}/"
